@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.XTaIk" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#09090E</item>
+    </style>
+</resources>

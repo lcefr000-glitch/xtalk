@@ -1,0 +1,20 @@
+# Automatic HTTPS (Let's Encrypt). WebSockets (/ws, socket.io) pass through reverse_proxy as-is.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy api:3000 {
+		health_uri /api/v1/health
+		health_interval 30s
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+	request_body {
+		max_size 25MB
+	}
+}

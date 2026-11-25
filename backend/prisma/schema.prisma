@@ -1,0 +1,586 @@
+// X TaIk - initial database schema (Phase 1 foundation, all entities declared)
+// PostgreSQL + Prisma. UUID primary keys, timestamps, soft deletion where noted.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Enums ----------
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  RESTRICTED
+  DELETED
+}
+
+enum ProficiencyLevel {
+  BEGINNER
+  ELEMENTARY
+  INTERMEDIATE
+  UPPER_INTERMEDIATE
+  ADVANCED
+  FLUENT
+  NATIVE
+}
+
+enum LanguageLearningType {
+  NATIVE
+  LEARNING
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VOICE
+  SYSTEM
+}
+
+enum NotificationType {
+  NEW_MESSAGE
+  NEW_FOLLOWER
+  LIKE
+  COMMENT
+  REPLY
+  ROOM_INVITATION
+  INCOMING_CALL
+  ACCOUNT
+  SECURITY
+}
+
+enum ReportTargetType {
+  USER
+  MESSAGE
+  POST
+  COMMENT
+  VOICE_ROOM
+}
+
+enum ReportStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+enum SubscriptionPlan {
+  FREE
+  PREMIUM
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELED
+  REFUNDED
+}
+
+enum VoiceRoomRole {
+  HOST
+  SPEAKER
+  LISTENER
+}
+
+enum CallType {
+  AUDIO
+  VIDEO
+}
+
+enum CallStatus {
+  RINGING
+  ONGOING
+  ENDED
+  MISSED
+  REJECTED
+  FAILED
+}
+
+enum AdminRole {
+  MODERATOR
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum ModerationActionType {
+  WARN
+  RESTRICT
+  SUSPEND
+  UNSUSPEND
+  REMOVE_CONTENT
+  DISMISS_REPORT
+}
+
+// ---------- Core ----------
+
+model User {
+  id            String     @id @default(uuid())
+  email         String     @unique // stored lowercase
+  username      String     @unique // stored lowercase
+  passwordHash  String
+  dateOfBirth   DateTime
+  isMinor       Boolean    @default(false)
+  emailVerified Boolean    @default(false)
+  status        UserStatus @default(ACTIVE)
+  lastActiveAt  DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  deletedAt     DateTime? // soft delete
+
+  profile            Profile?
+  settings           UserSettings?
+  userLanguages      UserLanguage[]
+  learningGoals      LearningGoal[]
+  refreshTokens      RefreshToken[]
+  emailTokens        EmailVerificationToken[]
+  passwordTokens     PasswordResetToken[]
+  memberships        ConversationMember[]
+  messages           Message[]
+  posts              Post[]
+  comments           Comment[]
+  likes              Like[]
+  following          Follow[]            @relation("following")
+  followers          Follow[]            @relation("followers")
+  notifications      Notification[]      @relation("notificationRecipient")
+  triggeredNotifs    Notification[]      @relation("notificationActor")
+  voiceRoomsHosted   VoiceRoom[]         @relation("roomHost")
+  roomParticipations VoiceRoomParticipant[]
+  callsInitiated     Call[]              @relation("callCaller")
+  callsReceived      Call[]              @relation("callCallee")
+  blocksMade         Block[]             @relation("blocker")
+  blocksReceived     Block[]             @relation("blocked")
+  reportsFiled       Report[]            @relation("reporter")
+  subscription       Subscription?
+  paymentTransactions PaymentTransaction[]
+
+  @@index([status])
+  @@index([lastActiveAt])
+}
+
+model Profile {
+  id                 String   @id @default(uuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName        String
+  bio                String?  @db.Text
+  photoUrl           String?
+  country            String?  // ISO 3166-1 alpha-2
+  interests          String[] @default([])
+  showOnlineStatus   Boolean  @default(true)
+  showLastActive     Boolean  @default(true)
+  profileIsPublic    Boolean  @default(true)
+  interfaceLanguage  String   @default("en") // UI locale code
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model UserSettings {
+  id                    String   @id @default(uuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notifyMessages        Boolean  @default(true)
+  notifyFollowers       Boolean  @default(true)
+  notifyLikes           Boolean  @default(true)
+  notifyComments        Boolean  @default(true)
+  notifyRoomInvitations Boolean  @default(true)
+  notifyCalls           Boolean  @default(true)
+  notifyAccount         Boolean  @default(true)
+  darkMode              Boolean?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model Language {
+  code       String   @id // ISO 639-1, e.g. "en", "ar"
+  name       String
+  nativeName String
+  isRtl      Boolean  @default(false)
+  isActive   Boolean  @default(true)
+
+  userLanguages UserLanguage[]
+  learningGoals LearningGoal[]
+  voiceRooms    VoiceRoom[]
+}
+
+model UserLanguage {
+  id          String               @id @default(uuid())
+  userId      String
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  languageCode String
+  language    Language             @relation(fields: [languageCode], references: [code])
+  type        LanguageLearningType
+  proficiency ProficiencyLevel
+
+  @@unique([userId, languageCode])
+  @@index([languageCode, type])
+}
+
+model LearningGoal {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  languageCode String
+  language     Language @relation(fields: [languageCode], references: [code])
+  dailyMinutes Int      @default(15)
+  goalText     String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([userId, languageCode])
+}
+
+// ---------- Auth ----------
+
+model RefreshToken {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash    String    @unique // sha256 of the opaque refresh token
+  familyId     String // rotation family; reuse revokes the whole family
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?
+  createdByIp  String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([familyId])
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// ---------- Messaging (schema declared in Phase 1, implemented in Phase 3) ----------
+
+model Conversation {
+  id        String   @id @default(uuid())
+  isGroup   Boolean  @default(false)
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members  ConversationMember[]
+  messages Message[]
+}
+
+model ConversationMember {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastReadAt     DateTime?
+  joinedAt       DateTime     @default(now())
+  leftAt         DateTime?
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String      @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User        @relation(fields: [senderId], references: [id])
+  type           MessageType @default(TEXT)
+  body           String?     @db.Text
+  replyToId      String?
+  editedAt       DateTime?
+  createdAt      DateTime    @default(now())
+  deletedAt      DateTime? // soft delete
+
+  attachments  MessageAttachment[]
+  translations MessageTranslation[]
+  corrections  MessageCorrection[]
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+}
+
+model MessageAttachment {
+  id        String   @id @default(uuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  url       String
+  mimeType  String
+  byteSize  Int
+  createdAt DateTime @default(now())
+
+  @@index([messageId])
+}
+
+model MessageTranslation {
+  id             String   @id @default(uuid())
+  messageId      String
+  message        Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId         String // who requested it
+  targetLanguage String
+  translatedText String   @db.Text
+  provider       String
+  createdAt      DateTime @default(now())
+
+  @@unique([messageId, userId, targetLanguage])
+}
+
+model MessageCorrection {
+  id            String   @id @default(uuid())
+  messageId     String
+  message       Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  correctorId   String?
+  correctedText String   @db.Text
+  explanation   String?  @db.Text
+  provider      String?
+  createdAt     DateTime @default(now())
+
+  @@index([messageId])
+}
+
+// ---------- Social (schema declared in Phase 1, implemented in Phase 5) ----------
+
+model Post {
+  id        String    @id @default(uuid())
+  authorId  String
+  author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body      String    @db.Text
+  languageCode String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // soft delete
+
+  images   PostImage[]
+  comments Comment[]
+  likes    Like[]
+
+  @@index([authorId, createdAt])
+  @@index([createdAt])
+}
+
+model PostImage {
+  id       String @id @default(uuid())
+  postId   String
+  post     Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  url      String
+  position Int    @default(0)
+
+  @@index([postId])
+}
+
+model Comment {
+  id        String    @id @default(uuid())
+  postId    String
+  post      Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parentId  String?
+  body      String    @db.Text
+  createdAt DateTime  @default(now())
+  deletedAt DateTime? // soft delete
+
+  likes Like[]
+
+  @@index([postId, createdAt])
+}
+
+model Like {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId    String?
+  post      Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  commentId String?
+  comment   Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, postId, commentId])
+}
+
+model Follow {
+  id          String   @id @default(uuid())
+  followerId  String
+  follower    User     @relation("following", fields: [followerId], references: [id], onDelete: Cascade)
+  followingId String
+  following   User     @relation("followers", fields: [followingId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followingId])
+  @@index([followingId])
+}
+
+// ---------- Notifications / Voice / Calls (schema now, features later) ----------
+
+model Notification {
+  id         String           @id @default(uuid())
+  recipientId String
+  recipient  User             @relation("notificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  actorId    String?
+  actor      User?            @relation("notificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  type       NotificationType
+  payload    Json?
+  readAt     DateTime?
+  createdAt  DateTime         @default(now())
+
+  @@index([recipientId, readAt])
+  @@index([recipientId, createdAt])
+}
+
+model VoiceRoom {
+  id           String   @id @default(uuid())
+  hostId       String
+  host         User     @relation("roomHost", fields: [hostId], references: [id])
+  title        String
+  description  String?  @db.Text
+  languageCode String?
+  language     Language? @relation(fields: [languageCode], references: [code])
+  isLive       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  closedAt     DateTime?
+
+  participants VoiceRoomParticipant[]
+
+  @@index([isLive, createdAt])
+}
+
+model VoiceRoomParticipant {
+  id       String        @id @default(uuid())
+  roomId   String
+  room     VoiceRoom     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     VoiceRoomRole @default(LISTENER)
+  isMuted  Boolean       @default(false)
+  joinedAt DateTime      @default(now())
+  leftAt   DateTime?
+
+  @@unique([roomId, userId])
+}
+
+model Call {
+  id        String     @id @default(uuid())
+  callerId  String
+  caller    User       @relation("callCaller", fields: [callerId], references: [id])
+  calleeId  String
+  callee    User       @relation("callCallee", fields: [calleeId], references: [id])
+  type      CallType
+  status    CallStatus @default(RINGING)
+  startedAt DateTime?
+  endedAt   DateTime?
+  createdAt DateTime   @default(now())
+
+  @@index([callerId])
+  @@index([calleeId])
+}
+
+// ---------- Safety / Moderation ----------
+
+model Block {
+  id        String   @id @default(uuid())
+  blockerId String
+  blocker   User     @relation("blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId String
+  blocked   User     @relation("blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+}
+
+model Report {
+  id           String           @id @default(uuid())
+  reporterId   String
+  reporter     User             @relation("reporter", fields: [reporterId], references: [id])
+  targetType   ReportTargetType
+  targetId     String
+  reason       String
+  details      String?          @db.Text
+  status       ReportStatus     @default(OPEN)
+  createdAt    DateTime         @default(now())
+  resolvedAt   DateTime?
+  resolvedById String?
+
+  moderationActions ModerationAction[]
+
+  @@index([status, createdAt])
+  @@index([targetType, targetId])
+}
+
+model AdminUser {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  role         AdminRole @default(MODERATOR)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  actions ModerationAction[]
+}
+
+model ModerationAction {
+  id          String               @id @default(uuid())
+  adminId     String
+  admin       AdminUser            @relation(fields: [adminId], references: [id])
+  reportId    String?
+  report      Report?              @relation(fields: [reportId], references: [id])
+  action      ModerationActionType
+  targetType  ReportTargetType?
+  targetId    String?
+  notes       String?              @db.Text
+  createdAt   DateTime             @default(now())
+
+  @@index([adminId])
+}
+
+// ---------- Monetization (schema now, feature in Phase 7) ----------
+
+model Subscription {
+  id               String             @id @default(uuid())
+  userId           String             @unique
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan             SubscriptionPlan   @default(FREE)
+  status           SubscriptionStatus @default(ACTIVE)
+  startedAt        DateTime           @default(now())
+  expiresAt        DateTime?
+  googlePurchaseToken String?         @unique
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+}
+
+model PaymentTransaction {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  provider        String   // "google_play"
+  productId       String
+  purchaseToken   String   @unique
+  amountMicros    BigInt?
+  currency        String?
+  createdAt       DateTime @default(now())
+
+  @@index([userId])
+}
