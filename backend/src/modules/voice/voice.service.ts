@@ -328,6 +328,24 @@ export class VoiceService implements OnModuleInit {
     return this.updateCallAs(userId, callId, 'either', { status: 'ENDED', endedAt: new Date() });
   }
 
+  /** LiveKit media token for a call participant (video grant for VIDEO calls). */
+  async callToken(userId: string, callId: string) {
+    const call = await this.prisma.call.findUnique({ where: { id: callId } });
+    if (!call) throw new NotFoundException('Call not found');
+    if (call.callerId !== userId && call.calleeId !== userId) throw new ForbiddenException('Not your call');
+    if (call.status === 'ENDED' || call.status === 'REJECTED' || call.status === 'MISSED' || call.status === 'FAILED') {
+      throw new BadRequestException('Call is over');
+    }
+    const profile = await this.prisma.profile.findUnique({ where: { userId }, select: { displayName: true } });
+    return this.livekit.createToken({
+      roomId: `call-${callId}`,
+      userId,
+      name: profile?.displayName ?? 'caller',
+      canPublish: true,
+      video: call.type === 'VIDEO',
+    });
+  }
+
   callHistory(userId: string) {
     return this.prisma.call.findMany({
       where: { OR: [{ callerId: userId }, { calleeId: userId }] },

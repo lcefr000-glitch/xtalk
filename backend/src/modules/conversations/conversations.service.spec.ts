@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { SafetyService } from '../safety/safety.service';
 import { ConversationsService } from './conversations.service';
+import { ProgressService } from '../progress/progress.service';
 
 function prismaMock() {
   return {
@@ -38,6 +39,7 @@ describe('ConversationsService', () => {
         ConversationsService,
         { provide: PrismaService, useValue: prisma },
         { provide: SafetyService, useValue: safety },
+        { provide: ProgressService, useValue: { record: jest.fn().mockResolvedValue([]) } },
       ],
     }).compile();
     service = module.get(ConversationsService);

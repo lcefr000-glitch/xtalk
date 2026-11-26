@@ -17,7 +17,7 @@ export class LiveKitService {
 
   private httpUrl() { return this.url.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:'); }
 
-  async createToken(opts: { roomId: string; userId: string; name: string; canPublish: boolean }) {
+  async createToken(opts: { roomId: string; userId: string; name: string; canPublish: boolean; video?: boolean }) {
     if (!this.configured) throw new ServiceUnavailableException('Live audio is not configured (LIVEKIT_* missing)');
     const at = new AccessToken(this.key, this.secret, {
       identity: opts.userId,
@@ -29,7 +29,11 @@ export class LiveKitService {
       roomJoin: true,
       canSubscribe: true,
       canPublish: opts.canPublish,
-      canPublishSources: opts.canPublish ? [TrackSource.MICROPHONE] : [],
+      canPublishSources: opts.canPublish
+        ? opts.video
+          ? [TrackSource.MICROPHONE, TrackSource.CAMERA]
+          : [TrackSource.MICROPHONE]
+        : [],
       canPublishData: false,
     });
     return { token: await at.toJwt(), url: this.url };

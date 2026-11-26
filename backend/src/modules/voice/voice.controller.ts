@@ -124,4 +124,10 @@ export class VoiceController {
   history(@CurrentUser() user: AuthUser) {
     return this.voice.callHistory(user.id);
   }
+
+  /** LiveKit media token for a call either party is in (ringing or ongoing). */
+  @Post('calls/:id/token')
+  callToken(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.voice.callToken(user.id, id);
+  }
 }

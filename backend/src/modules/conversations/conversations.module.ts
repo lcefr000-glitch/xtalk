@@ -5,9 +5,13 @@ import { AppConfig } from '../../config/configuration';
 import { ChatGateway } from './chat.gateway';
 import { ConversationsController } from './conversations.controller';
 import { ConversationsService } from './conversations.service';
+import { LiveModule } from '../live/live.module';
+import { ProgressModule } from '../progress/progress.module';
 
 @Module({
   imports: [
+    LiveModule,
+    ProgressModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService<AppConfig, true>) => ({

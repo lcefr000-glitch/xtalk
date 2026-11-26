@@ -24,6 +24,12 @@ import { EconomyModule } from './modules/economy/economy.module';
 import { ChatExtrasModule } from './modules/chat-extras/chat-extras.module';
 import { ProfileExtrasModule } from './modules/profile-extras/profile-extras.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { ProgressModule } from './modules/progress/progress.module';
+import { VocabularyModule } from './modules/vocabulary/vocabulary.module';
+import { FriendsModule } from './modules/friends/friends.module';
+import { CoursesModule } from './modules/courses/courses.module';
+import { TeachersModule } from './modules/teachers/teachers.module';
+import { LiveModule } from './modules/live/live.module';
 
 @Module({
   imports: [
@@ -50,6 +56,12 @@ import { AdminModule } from './modules/admin/admin.module';
     ChatExtrasModule,
     ProfileExtrasModule,
     AdminModule,
+    ProgressModule,
+    VocabularyModule,
+    FriendsModule,
+    CoursesModule,
+    TeachersModule,
+    LiveModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

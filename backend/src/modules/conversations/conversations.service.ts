@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { SafetyService } from '../safety/safety.service';
+import { ProgressService } from '../progress/progress.service';
 import { EditMessageDto, SendMessageDto } from './dto/message.dto';
 
 @Injectable()
@@ -13,6 +14,7 @@ export class ConversationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly safety: SafetyService,
+    private readonly progress: ProgressService,
   ) {}
 
   /** Get-or-create the 1:1 conversation between two users. */
@@ -171,6 +173,8 @@ export class ConversationsService {
       });
       return created;
     });
+    // Learning stats: count sent messages (best effort, never blocks sending).
+    this.progress.record(meId, { messagesSent: 1 }).catch(() => undefined);
     return message;
   }
 
