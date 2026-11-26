@@ -39,6 +39,12 @@ export class DiscoveryQueryDto {
   @IsString()
   proficiency?: string;
 
+  /** active (default) | match */
+  @IsOptional()
+  @IsString()
+  @Matches(/^(active|match)$/)
+  sort?: string;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()

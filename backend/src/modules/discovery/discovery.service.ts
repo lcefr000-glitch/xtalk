@@ -3,6 +3,23 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { DiscoveryQueryDto } from './dto/discovery-query.dto';
 
+/** 0-100: language swap fit (50), shared interests (up to 30), recently active (20). */
+export function matchScore(viewer: any, u: any): number {
+  const vl = viewer.userLanguages ?? [];
+  const ul = u.userLanguages ?? [];
+  const vNative = vl.filter((l: any) => l.type === 'NATIVE').map((l: any) => l.languageCode);
+  const vLearn = vl.filter((l: any) => l.type === 'LEARNING').map((l: any) => l.languageCode);
+  const theyTeach = ul.some((l: any) => l.type === 'NATIVE' && vLearn.includes(l.languageCode));
+  const theyLearn = ul.some((l: any) => l.type === 'LEARNING' && vNative.includes(l.languageCode));
+  let score = (theyTeach ? 25 : 0) + (theyLearn ? 25 : 0);
+  const mine: string[] = viewer.profile?.interests ?? viewer.interests ?? [];
+  const theirs: string[] = u.profile?.interests ?? [];
+  const shared = theirs.filter((i) => mine.includes(i)).length;
+  score += Math.min(30, shared * 10);
+  if (u.lastActiveAt && Date.now() - new Date(u.lastActiveAt).getTime() < 24 * 3600_000) score += 20;
+  return Math.min(100, score);
+}
+
 @Injectable()
 export class DiscoveryService {
   constructor(private readonly prisma: PrismaService) {}
@@ -17,7 +34,7 @@ export class DiscoveryService {
   async search(viewerId: string, query: DiscoveryQueryDto) {
     const viewer = await this.prisma.user.findUniqueOrThrow({
       where: { id: viewerId },
-      select: { isMinor: true },
+      select: { isMinor: true, profile: { select: { interests: true } }, userLanguages: true },
     });
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
@@ -52,17 +69,23 @@ export class DiscoveryService {
         : {}),
     };
 
+    const byMatch = query.sort === 'match';
     const [total, users] = await this.prisma.$transaction([
       this.prisma.user.count({ where }),
       this.prisma.user.findMany({
         where,
         select: this.partnerSelect(),
         orderBy: { lastActiveAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
+        skip: byMatch ? 0 : (page - 1) * limit,
+        take: byMatch ? 200 : limit,
       }),
     ]);
-    return { page, limit, total, results: users.map((u) => this.toPartner(u)) };
+    let results = users.map((u) => ({ ...this.toPartner(u), matchScore: matchScore(viewer, u) }));
+    if (byMatch) {
+      results.sort((a, b) => b.matchScore - a.matchScore);
+      results = results.slice((page - 1) * limit, page * limit);
+    }
+    return { page, limit, total, results };
   }
 
   /** Complementary-skill matches: they natively speak what I learn, they learn what I speak. */
@@ -95,7 +118,9 @@ export class DiscoveryService {
       orderBy: { lastActiveAt: 'desc' },
       take: limit,
     });
-    return { results: users.map((u) => this.toPartner(u)) };
+    const results = users.map((u) => ({ ...this.toPartner(u), matchScore: matchScore(viewer as any, u) }));
+    results.sort((a, b) => b.matchScore - a.matchScore);
+    return { results };
   }
 
   private partnerSelect() {

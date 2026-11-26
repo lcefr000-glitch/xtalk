@@ -27,6 +27,20 @@ export class ChatExtrasService implements OnModuleInit {
           PRIMARY KEY (user_id, conversation_id)
         )`,
       );
+      await this.prisma.$executeRawUnsafe(
+        `CREATE TABLE IF NOT EXISTS chat_flags (
+          user_id TEXT NOT NULL, conversation_id TEXT NOT NULL,
+          muted BOOLEAN NOT NULL DEFAULT false, archived BOOLEAN NOT NULL DEFAULT false,
+          PRIMARY KEY (user_id, conversation_id)
+        )`,
+      );
+      await this.prisma.$executeRawUnsafe(
+        `CREATE TABLE IF NOT EXISTS message_stars (
+          user_id TEXT NOT NULL, message_id TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (user_id, message_id)
+        )`,
+      );
       this.ready = true;
       this.log.log('chat extras tables ready');
     } catch (e) {
@@ -85,5 +99,57 @@ export class ChatExtrasService implements OnModuleInit {
     const del = await this.prisma.$executeRaw`DELETE FROM chat_pins WHERE user_id = ${userId} AND conversation_id = ${conversationId}`;
     if (del === 0) await this.prisma.$executeRaw`INSERT INTO chat_pins (user_id, conversation_id) VALUES (${userId}, ${conversationId}) ON CONFLICT DO NOTHING`;
     return { pinned: del === 0 };
+  }
+
+  async flags(userId: string) {
+    this.ensureReady();
+    const rows = await this.prisma.$queryRaw<{ conversation_id: string; muted: boolean; archived: boolean }[]>`SELECT conversation_id, muted, archived FROM chat_flags WHERE user_id = ${userId}`;
+    return { flags: rows.map((r) => ({ conversationId: r.conversation_id, muted: r.muted, archived: r.archived })) };
+  }
+
+  async setFlag(userId: string, conversationId: string, field: 'muted' | 'archived', value: boolean) {
+    this.ensureReady();
+    await this.assertMember(userId, conversationId);
+    if (field === 'muted') {
+      await this.prisma.$executeRaw`INSERT INTO chat_flags (user_id, conversation_id, muted) VALUES (${userId}, ${conversationId}, ${value}) ON CONFLICT (user_id, conversation_id) DO UPDATE SET muted = ${value}`;
+    } else {
+      await this.prisma.$executeRaw`INSERT INTO chat_flags (user_id, conversation_id, archived) VALUES (${userId}, ${conversationId}, ${value}) ON CONFLICT (user_id, conversation_id) DO UPDATE SET archived = ${value}`;
+    }
+    return { success: true, [field]: value };
+  }
+
+  async toggleStar(userId: string, messageId: string) {
+    this.ensureReady();
+    const msg = await this.prisma.message.findUnique({ where: { id: messageId }, select: { conversationId: true, deletedAt: true } });
+    if (!msg || msg.deletedAt) throw new NotFoundException('Message not found');
+    await this.assertMember(userId, msg.conversationId);
+    const del = await this.prisma.$executeRaw`DELETE FROM message_stars WHERE user_id = ${userId} AND message_id = ${messageId}`;
+    if (del === 0) await this.prisma.$executeRaw`INSERT INTO message_stars (user_id, message_id) VALUES (${userId}, ${messageId}) ON CONFLICT DO NOTHING`;
+    return { starred: del === 0 };
+  }
+
+  /** Starred messages the user can still see (member of the conversation, not deleted). */
+  async stars(userId: string) {
+    this.ensureReady();
+    const rows = await this.prisma.$queryRaw<any[]>`
+      SELECT m.id, m."conversationId" AS "conversationId", m.body, m."createdAt" AS "createdAt", m."senderId" AS "senderId"
+      FROM message_stars s JOIN "Message" m ON m.id = s.message_id
+      JOIN "ConversationMember" cm ON cm."conversationId" = m."conversationId" AND cm."userId" = ${userId} AND cm."leftAt" IS NULL
+      WHERE s.user_id = ${userId} AND m."deletedAt" IS NULL ORDER BY s.created_at DESC LIMIT 100`;
+    return { messages: rows };
+  }
+
+  /** Search the user's own conversations only. */
+  async search(userId: string, q: string) {
+    this.ensureReady();
+    const term = q.trim().slice(0, 60);
+    if (term.length < 2) return { messages: [] };
+    const like = '%' + term.replace(/[%_\\]/g, (c) => '\\' + c) + '%';
+    const rows = await this.prisma.$queryRaw<any[]>`
+      SELECT m.id, m."conversationId" AS "conversationId", m.body, m."createdAt" AS "createdAt", m."senderId" AS "senderId"
+      FROM "Message" m
+      JOIN "ConversationMember" cm ON cm."conversationId" = m."conversationId" AND cm."userId" = ${userId} AND cm."leftAt" IS NULL
+      WHERE m."deletedAt" IS NULL AND m.body ILIKE ${like} ORDER BY m."createdAt" DESC LIMIT 50`;
+    return { messages: rows };
   }
 }

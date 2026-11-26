@@ -28,3 +28,9 @@ export class CreateCommentDto {
   @IsString()
   parentId?: string;
 }
+
+export class EditPostDto {
+  @IsString()
+  @Length(1, 2000)
+  body!: string;
+}

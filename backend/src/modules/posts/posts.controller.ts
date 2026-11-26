@@ -1,9 +1,9 @@
 import {
-  Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Post, Query,
+  Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
-import { CreateCommentDto, CreatePostDto } from './dto/post.dto';
+import { CreateCommentDto, CreatePostDto, EditPostDto } from './dto/post.dto';
 import { PostsService } from './posts.service';
 
 @ApiTags('moments')
@@ -18,13 +18,26 @@ export class PostsController {
   }
 
   @Get('feed')
-  feed(@CurrentUser() user: AuthUser, @Query('before') before?: string, @Query('limit') limit?: string) {
-    return this.posts.feed(user.id, before, limit ? parseInt(limit, 10) : 20);
+  feed(@CurrentUser() user: AuthUser, @Query('before') before?: string, @Query('limit') limit?: string,
+    @Query('tag') tag?: string, @Query('lang') lang?: string, @Query('saved') saved?: string, @Query('mine') mine?: string) {
+    return this.posts.feed(user.id, before, limit ? parseInt(limit, 10) || 20 : 20, { tag, lang, saved: saved === '1', mine: mine === '1' });
   }
 
   @Get('posts/:id')
-  getOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.posts.getOne(id);
+  getOne(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.posts.getOne(id, user.id);
+  }
+
+  @HttpCode(200)
+  @Patch('posts/:id')
+  edit(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: EditPostDto) {
+    return this.posts.edit(user.id, id, dto.body);
+  }
+
+  @HttpCode(200)
+  @Post('posts/:id/bookmark')
+  bookmark(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.posts.toggleBookmark(user.id, id);
   }
 
   @HttpCode(200)

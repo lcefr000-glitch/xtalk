@@ -1,6 +1,6 @@
-import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsString, MaxLength } from 'class-validator';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ChatExtrasService } from './chat-extras.service';
 
@@ -8,6 +8,11 @@ class ReactDto {
   @IsString()
   @MaxLength(16)
   emoji!: string;
+}
+
+class FlagDto {
+  @IsBoolean()
+  value!: boolean;
 }
 
 @ApiTags('chat-extras')
@@ -36,5 +41,38 @@ export class ChatExtrasController {
   @HttpCode(200)
   togglePin(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.extras.togglePin(user.id, id);
+  }
+
+  @Get('flags')
+  flags(@CurrentUser() user: AuthUser) {
+    return this.extras.flags(user.id);
+  }
+
+  @Post('conversations/:id/mute')
+  @HttpCode(200)
+  mute(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: FlagDto) {
+    return this.extras.setFlag(user.id, id, 'muted', dto.value);
+  }
+
+  @Post('conversations/:id/archive')
+  @HttpCode(200)
+  archive(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: FlagDto) {
+    return this.extras.setFlag(user.id, id, 'archived', dto.value);
+  }
+
+  @Post('messages/:id/star')
+  @HttpCode(200)
+  star(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.extras.toggleStar(user.id, id);
+  }
+
+  @Get('stars')
+  stars(@CurrentUser() user: AuthUser) {
+    return this.extras.stars(user.id);
+  }
+
+  @Get('search')
+  search(@CurrentUser() user: AuthUser, @Query('q') q: string = '') {
+    return this.extras.search(user.id, String(q));
   }
 }

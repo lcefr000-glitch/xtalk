@@ -1,10 +1,28 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { SafetyService } from '../safety/safety.service';
 import { CreateCommentDto, CreatePostDto } from './dto/post.dto';
 
 @Injectable()
-export class PostsService {
+export class PostsService implements OnModuleInit {
+  private readonly log = new Logger('Posts');
+  private bmReady = false;
+
+  async onModuleInit() {
+    try {
+      await this.prisma.$executeRawUnsafe(
+        `CREATE TABLE IF NOT EXISTS post_bookmarks (
+          user_id TEXT NOT NULL, post_id TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (user_id, post_id)
+        )`,
+      );
+      this.bmReady = true;
+    } catch (e) {
+      this.log.error('bookmarks bootstrap failed: ' + (e as Error).message);
+    }
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly safety: SafetyService,
@@ -28,7 +46,7 @@ export class PostsService {
    * Feed: posts from people I follow + my own posts first-class, then recent
    * public posts; authors who blocked me / I blocked are excluded.
    */
-  async feed(userId: string, before?: string, limit = 20) {
+  async feed(userId: string, before?: string, limit = 20, opts: { tag?: string; lang?: string; saved?: boolean; mine?: boolean } = {}) {
     const take = Math.min(limit, 50);
     const blocked = await this.prisma.block.findMany({
       where: { OR: [{ blockerId: userId }, { blockedId: userId }] },
@@ -38,10 +56,20 @@ export class PostsService {
     for (const b of blocked) {
       excluded.add(b.blockerId === userId ? b.blockedId : b.blockerId);
     }
+    let savedIds: string[] | undefined;
+    if (opts.saved) {
+      if (!this.bmReady) throw new ServiceUnavailableException('Not available right now');
+      const r = await this.prisma.$queryRaw<{ post_id: string }[]>`SELECT post_id FROM post_bookmarks WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 200`;
+      savedIds = r.map((x) => x.post_id);
+    }
+    const tag = opts.tag?.replace(/[^\p{L}\p{N}_]/gu, '').slice(0, 40);
     const posts = await this.prisma.post.findMany({
       where: {
         deletedAt: null,
-        authorId: { notIn: [...excluded] },
+        ...(savedIds ? { id: { in: savedIds } } : {}),
+        ...(tag ? { body: { contains: '#' + tag, mode: 'insensitive' as const } } : {}),
+        ...(opts.lang && /^[a-z]{2}$/.test(opts.lang) ? { languageCode: opts.lang } : {}),
+        authorId: opts.mine ? userId : { notIn: [...excluded] },
         author: { status: 'ACTIVE', deletedAt: null, profile: { is: { profileIsPublic: true } } },
         ...(before ? { createdAt: { lt: new Date(before) } } : {}),
       },
@@ -77,7 +105,7 @@ export class PostsService {
     };
   }
 
-  async getOne(postId: string) {
+  async getOne(postId: string, viewerId?: string) {
     const post = await this.prisma.post.findUnique({
       where: { id: postId },
       include: {
@@ -92,7 +120,30 @@ export class PostsService {
       },
     });
     if (!post || post.deletedAt) throw new NotFoundException('Post not found');
+    if (viewerId && viewerId !== post.authorId) {
+      const b = await this.prisma.block.findFirst({
+        where: { OR: [{ blockerId: viewerId, blockedId: post.authorId }, { blockerId: post.authorId, blockedId: viewerId }] },
+        select: { blockerId: true },
+      });
+      if (b) throw new NotFoundException('Post not found');
+    }
     return post;
+  }
+
+  async edit(userId: string, postId: string, body: string) {
+    const post = await this.prisma.post.findUnique({ where: { id: postId } });
+    if (!post || post.deletedAt) throw new NotFoundException('Post not found');
+    if (post.authorId !== userId) throw new ForbiddenException('You can only edit your own posts');
+    const updated = await this.prisma.post.update({ where: { id: postId }, data: { body } });
+    return { id: updated.id, body: updated.body, updatedAt: updated.updatedAt };
+  }
+
+  async toggleBookmark(userId: string, postId: string) {
+    if (!this.bmReady) throw new ServiceUnavailableException('Not available right now');
+    await this.getOne(postId, userId);
+    const del = await this.prisma.$executeRaw`DELETE FROM post_bookmarks WHERE user_id = ${userId} AND post_id = ${postId}`;
+    if (del === 0) await this.prisma.$executeRaw`INSERT INTO post_bookmarks (user_id, post_id) VALUES (${userId}, ${postId}) ON CONFLICT DO NOTHING`;
+    return { saved: del === 0 };
   }
 
   async remove(userId: string, postId: string) {

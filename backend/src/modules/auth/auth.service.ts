@@ -5,6 +5,7 @@ import {
   Logger,
   ServiceUnavailableException,
   UnauthorizedException,
+  NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -107,12 +108,32 @@ export class AuthService {
 
   // ---------- Login / session ----------
 
+  private readonly fails = new Map<string, { n: number; until: number }>();
+
   async login(dto: LoginDto, meta: RequestMeta = {}) {
+    const key = String(dto.email).toLowerCase();
+    const f = this.fails.get(key);
+    if (f && f.until > Date.now()) throw new UnauthorizedException('Too many attempts. Try again in 15 minutes.');
+    try {
+      return await this.loginInner(dto, meta);
+    } catch (e) {
+      if (e instanceof UnauthorizedException) {
+        const cur = this.fails.get(key);
+        const n = (cur && cur.until + 900_000 > Date.now() ? cur.n : 0) + 1;
+        this.fails.set(key, { n, until: n >= 5 ? Date.now() + 900_000 : 0 });
+        if (this.fails.size > 5000) this.fails.clear();
+      }
+      throw e;
+    }
+  }
+
+  private async loginInner(dto: LoginDto, meta: RequestMeta = {}) {
     const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (!user || user.deletedAt) throw new UnauthorizedException('Invalid credentials');
     if (user.status === 'SUSPENDED') throw new UnauthorizedException('Account is suspended');
     const ok = await argon2.verify(user.passwordHash, dto.password).catch(() => false);
     if (!ok) throw new UnauthorizedException('Invalid credentials');
+    this.fails.delete(String(dto.email).toLowerCase());
     await this.prisma.user.update({ where: { id: user.id }, data: { lastActiveAt: new Date() } });
     const tokens = await this.issueTokenPair(user, meta);
     return { user: this.publicUser(user), ...tokens };
@@ -377,5 +398,32 @@ export class AuthService {
 
   private devExposeTokens(): boolean {
     return this.config.get('devExposeTokens', { infer: true });
+  }
+
+  /** Devices/sessions and recent login history for the account (IP trimmed to the first two parts of the address). */
+  async sessions(userId: string) {
+    const rows = await this.prisma.refreshToken.findMany({
+      where: { userId, replacedById: null },
+      orderBy: { createdAt: 'desc' },
+      take: 30,
+      select: { id: true, createdAt: true, expiresAt: true, revokedAt: true, userAgent: true, createdByIp: true },
+    });
+    const now = Date.now();
+    return {
+      sessions: rows.map((r) => ({
+        id: r.id,
+        createdAt: r.createdAt,
+        device: (r.userAgent ?? 'Unknown device').slice(0, 80),
+        ip: r.createdByIp ? r.createdByIp.split('.').slice(0, 2).join('.') + '.x.x' : null,
+        active: !r.revokedAt && r.expiresAt.getTime() > now,
+      })),
+    };
+  }
+
+  async revokeSession(userId: string, id: string) {
+    const t = await this.prisma.refreshToken.findFirst({ where: { id, userId } });
+    if (!t) throw new NotFoundException('Session not found');
+    await this.prisma.refreshToken.updateMany({ where: { familyId: t.familyId, userId, revokedAt: null }, data: { revokedAt: new Date() } });
+    return { success: true };
   }
 }

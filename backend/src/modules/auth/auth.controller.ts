@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Ip, Post, Headers } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Ip, Param, Post, Headers } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -94,5 +94,18 @@ export class AuthController {
   @Get('me')
   me(@CurrentUser() user: AuthUser) {
     return user;
+  }
+
+  @ApiBearerAuth()
+  @Get('sessions')
+  sessions(@CurrentUser() user: AuthUser) {
+    return this.auth.sessions(user.id);
+  }
+
+  @ApiBearerAuth()
+  @HttpCode(200)
+  @Delete('sessions/:id')
+  revokeSession(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.auth.revokeSession(user.id, id);
   }
 }
