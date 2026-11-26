@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CreateReportDto } from './dto/report.dto';
@@ -19,6 +19,16 @@ export class SafetyController {
   @Delete('users/:id/block')
   unblock(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.safety.unblock(user.id, id);
+  }
+
+  @Get('users/me/blocked-countries')
+  blockedCountries(@CurrentUser() user: AuthUser) {
+    return this.safety.blockedCountries(user.id).then((countries) => ({ countries }));
+  }
+
+  @Put('users/me/blocked-countries')
+  setBlockedCountries(@CurrentUser() user: AuthUser, @Body() body: { countries?: string[] }) {
+    return this.safety.setBlockedCountries(user.id, body?.countries ?? []);
   }
 
   @Get('users/me/blocked')

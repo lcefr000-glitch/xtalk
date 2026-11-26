@@ -1,5 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { SafetyService } from '../safety/safety.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ProfilesService } from './profiles.service';
 
@@ -12,7 +13,7 @@ describe('ProfilesService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     const module = await Test.createTestingModule({
-      providers: [ProfilesService, { provide: PrismaService, useValue: prisma }],
+      providers: [ProfilesService, { provide: PrismaService, useValue: prisma }, { provide: SafetyService, useValue: { countryBlockedUserIds: jest.fn().mockResolvedValue([]), isCountryBlockedEitherWay: jest.fn().mockResolvedValue(false) } }],
     }).compile();
     service = module.get(ProfilesService);
   });

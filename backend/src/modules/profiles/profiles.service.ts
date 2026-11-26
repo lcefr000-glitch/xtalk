@@ -1,10 +1,11 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { SafetyService } from '../safety/safety.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Injectable()
 export class ProfilesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly safety: SafetyService) {}
 
   async getMyProfile(userId: string) {
     const profile = await this.prisma.profile.findUnique({
@@ -55,7 +56,7 @@ export class ProfilesService {
     const blocked = await this.prisma.block.findFirst({
       where: { OR: [{ blockerId: viewerId, blockedId: id }, { blockerId: id, blockedId: viewerId }] },
     });
-    if (blocked) throw new ForbiddenException('Profile unavailable');
+    if (blocked || (viewerId !== id && (await this.safety.isCountryBlockedEitherWay(viewerId, id)))) throw new ForbiddenException('Profile unavailable');
     const isSelf = viewerId === id;
     if (!user.profile.profileIsPublic && !isSelf) throw new ForbiddenException('This profile is private');
     const [followers, following, isFollowing] = await Promise.all([

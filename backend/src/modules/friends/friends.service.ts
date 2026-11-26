@@ -9,13 +9,14 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { SafetyService } from '../safety/safety.service';
 
 @Injectable()
 export class FriendsService implements OnModuleInit {
   private readonly log = new Logger('Friends');
   private ready = false;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly safety: SafetyService) {}
 
   /** Additive, idempotent bootstrap: CREATE TABLE IF NOT EXISTS + enum value additions only. */
   async onModuleInit() {
@@ -56,7 +57,7 @@ export class FriendsService implements OnModuleInit {
     const blocked = await this.prisma.block.findFirst({
       where: { OR: [{ blockerId: a, blockedId: b }, { blockerId: b, blockedId: a }] },
     });
-    if (blocked) throw new ForbiddenException('Cannot send a friend request to this user');
+    if (blocked || (await this.safety.isCountryBlockedEitherWay(a, b))) throw new ForbiddenException('Cannot send a friend request to this user');
   }
 
   async send(senderId: string, receiverId: string) {

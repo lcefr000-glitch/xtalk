@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { SafetyService } from '../safety/safety.service';
 import { DiscoveryQueryDto } from './dto/discovery-query.dto';
 
 /** 0-100: language swap fit (50), shared interests (up to 30), recently active (20). */
@@ -22,7 +23,7 @@ export function matchScore(viewer: any, u: any): number {
 
 @Injectable()
 export class DiscoveryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly safety: SafetyService) {}
 
   /**
    * Partner search. Safety rails:
@@ -36,11 +37,12 @@ export class DiscoveryService {
       where: { id: viewerId },
       select: { isMinor: true, profile: { select: { interests: true } }, userLanguages: true },
     });
+    const hidden = await this.safety.countryBlockedUserIds(viewerId);
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
     const where: Prisma.UserWhereInput = {
-      id: { not: viewerId },
+      id: { not: viewerId, notIn: hidden },
       status: 'ACTIVE',
       deletedAt: null,
       isMinor: viewer.isMinor,
@@ -100,9 +102,10 @@ export class DiscoveryService {
       return { results: [], hint: 'Set a native language and at least one learning language to get recommendations' };
     }
 
+    const hidden = await this.safety.countryBlockedUserIds(viewerId);
     const users = await this.prisma.user.findMany({
       where: {
-        id: { not: viewerId },
+        id: { not: viewerId, notIn: hidden },
         status: 'ACTIVE',
         deletedAt: null,
         isMinor: viewer.isMinor,

@@ -34,7 +34,7 @@ export class LiveKitService {
           ? [TrackSource.MICROPHONE, TrackSource.CAMERA]
           : [TrackSource.MICROPHONE]
         : [],
-      canPublishData: false,
+      canPublishData: true,
     });
     return { token: await at.toJwt(), url: this.url };
   }
@@ -53,7 +53,7 @@ export class LiveKitService {
         canSubscribe: true,
         canPublish,
         canPublishSources: canPublish ? [TrackSource.MICROPHONE] : [],
-        canPublishData: false,
+        canPublishData: true,
       }),
     );
   }

@@ -1,9 +1,10 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { SafetyService } from '../safety/safety.service';
 
 @Injectable()
 export class FollowsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly safety: SafetyService) {}
 
   async follow(followerId: string, targetId: string) {
     if (followerId === targetId) throw new BadRequestException('You cannot follow yourself');
@@ -22,7 +23,7 @@ export class FollowsService {
         ],
       },
     });
-    if (blocked) throw new ForbiddenException('Cannot follow this user');
+    if (blocked || (await this.safety.isCountryBlockedEitherWay(followerId, targetId))) throw new ForbiddenException('Cannot follow this user');
 
     await this.prisma.follow.upsert({
       where: { followerId_followingId: { followerId, followingId: targetId } },
