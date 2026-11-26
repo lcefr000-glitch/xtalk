@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsString } from 'class-validator';
+import { IsIn, IsString } from 'class-validator';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SubscriptionsService } from './subscriptions.service';
 
@@ -10,6 +10,11 @@ class VerifyPurchaseDto {
 
   @IsString()
   purchaseToken!: string;
+}
+
+class DevActivateDto {
+  @IsIn(['1m', '3m', '1y', 'life'])
+  tier!: string;
 }
 
 @ApiTags('subscriptions')
@@ -31,6 +36,12 @@ export class SubscriptionsController {
   @Post('google-play/verify')
   verify(@CurrentUser() user: AuthUser, @Body() dto: VerifyPurchaseDto) {
     return this.subs.verifyGooglePlayPurchase(user.id, dto.productId, dto.purchaseToken);
+  }
+
+  /** TEST MODE: activates VIP with no payment. Disabled with DEV_BILLING=off. */
+  @Post('dev-activate')
+  devActivate(@CurrentUser() user: AuthUser, @Body() dto: DevActivateDto) {
+    return this.subs.devActivate(user.id, dto.tier);
   }
 
   @Get('history')

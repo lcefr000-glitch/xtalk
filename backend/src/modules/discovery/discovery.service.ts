@@ -36,6 +36,14 @@ export class DiscoveryService {
       },
       blocksMade: { none: { blockedId: viewerId } },
       blocksReceived: { none: { blockerId: viewerId } },
+      ...(query.q
+        ? {
+            OR: [
+              { username: { contains: query.q.toLowerCase() } },
+              { profile: { is: { displayName: { contains: query.q, mode: 'insensitive' as const } } } },
+            ],
+          }
+        : {}),
       ...(query.native
         ? { userLanguages: { some: { languageCode: query.native, type: 'NATIVE', ...(query.proficiency ? { proficiency: query.proficiency as any } : {}) } } }
         : {}),

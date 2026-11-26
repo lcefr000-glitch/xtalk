@@ -1,4 +1,4 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
 const ENTITLEMENTS: Record<string, string[]> = {
@@ -36,6 +36,27 @@ export class SubscriptionsService {
     // Real verification lands when credentials exist:
     // androidpublisher.purchases.subscriptions.get(...) then upsert Subscription + PaymentTransaction.
     throw new ServiceUnavailableException('Billing verification not implemented yet');
+  }
+
+  async devActivate(userId: string, tier: string) {
+    if ((process.env.DEV_BILLING ?? 'on') === 'off') throw new BadRequestException('Test activation is disabled');
+    const months: Record<string, number | null> = { '1m': 1, '3m': 3, '1y': 12, life: null };
+    if (!(tier in months)) throw new BadRequestException('Unknown tier');
+    const m = months[tier];
+    const current = await this.mySubscription(userId);
+    // Extend from the current expiry when VIP is still active; lifetime never expires.
+    let expiresAt: Date | null = null;
+    if (m !== null) {
+      const base = current.plan === 'PREMIUM' && current.expiresAt && current.expiresAt > new Date() ? new Date(current.expiresAt) : new Date();
+      base.setMonth(base.getMonth() + m);
+      expiresAt = base;
+    }
+    await this.prisma.subscription.upsert({
+      where: { userId },
+      create: { userId, plan: 'PREMIUM', status: 'ACTIVE', expiresAt },
+      update: { plan: 'PREMIUM', status: 'ACTIVE', expiresAt },
+    });
+    return { ...(await this.mySubscription(userId)), testMode: true, tier };
   }
 
   history(userId: string) {

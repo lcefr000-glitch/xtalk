@@ -27,6 +27,13 @@ export class DiscoveryQueryDto {
   @IsString()
   interest?: string;
 
+  /** Username (or display name) fragment, case-insensitive. */
+  @IsOptional()
+  @IsString()
+  @Matches(/^@?[A-Za-z0-9_ ]{1,30}$/)
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().replace(/^@/, '') : value))
+  q?: string;
+
   /** Proficiency of the searched language: BEGINNER..NATIVE. */
   @IsOptional()
   @IsString()
