@@ -106,6 +106,7 @@ export class VoiceService implements OnModuleInit {
   }
 
   async createRoom(hostId: string, dto: CreateRoomDto) {
+    await this.assertRoomTime(hostId);
     const created = await this.createRoomRow(hostId, dto);
     await this.ensureMeta();
     if (this.metaReady) {
@@ -180,7 +181,61 @@ export class VoiceService implements OnModuleInit {
     };
   }
 
+
+  // ---- daily voice-room time limit (non-VIP: 3 h per Cairo day, VIP unlimited) ----
+  static readonly FREE_ROOM_SECONDS = 3 * 3600;
+  private usageReady = false;
+  private async ensureUsage() {
+    if (this.usageReady) return;
+    try {
+      await this.prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS voice_usage (user_id TEXT NOT NULL, day TEXT NOT NULL, seconds INT NOT NULL DEFAULT 0, last_beat TIMESTAMPTZ, PRIMARY KEY (user_id, day))`);
+      this.usageReady = true;
+    } catch { /* retried next call */ }
+  }
+  private async isVipUser(userId: string): Promise<boolean> {
+    const sub = await this.prisma.subscription.findUnique({ where: { userId } });
+    return !!sub && sub.plan === 'PREMIUM' && sub.status === 'ACTIVE' && (sub.expiresAt === null || sub.expiresAt > new Date());
+  }
+  private async usedToday(userId: string): Promise<number> {
+    await this.ensureUsage();
+    const r = await this.prisma.$queryRawUnsafe<{ seconds: number }[]>(
+      `SELECT seconds FROM voice_usage WHERE user_id = $1 AND day = ((now() AT TIME ZONE 'Africa/Cairo')::date)::text`, userId);
+    return r[0]?.seconds ?? 0;
+  }
+  async usage(userId: string) {
+    const vip = await this.isVipUser(userId);
+    const used = vip ? 0 : await this.usedToday(userId);
+    const limit = VoiceService.FREE_ROOM_SECONDS;
+    return { vip, limited: !vip, usedSeconds: used, limitSeconds: vip ? null : limit, remainingSeconds: vip ? null : Math.max(0, limit - used), resetsAt: 'midnight Africa/Cairo' };
+  }
+  private limitError() {
+    return new ForbiddenException('ROOM_TIME_LIMIT: Your free voice-room time for today (3 hours) is over. Subscribe to VIP for unlimited time.');
+  }
+  async assertRoomTime(userId: string) {
+    if (await this.isVipUser(userId)) return;
+    if ((await this.usedToday(userId)) >= VoiceService.FREE_ROOM_SECONDS) throw this.limitError();
+  }
+  /** Called on every roster refresh by a participant: credits the time since the last beat (max 20 s per beat). */
+  async tickRoomTime(userId: string, roomId: string) {
+    try {
+      const inRoom = await this.prisma.voiceRoomParticipant.findFirst({ where: { roomId, userId, leftAt: null }, select: { id: true } });
+      if (!inRoom) return;
+      if (await this.isVipUser(userId)) return;
+      await this.ensureUsage();
+      await this.prisma.$executeRawUnsafe(
+        `INSERT INTO voice_usage (user_id, day, seconds, last_beat) VALUES ($1, ((now() AT TIME ZONE 'Africa/Cairo')::date)::text, 0, now())
+         ON CONFLICT (user_id, day) DO UPDATE SET
+           seconds = voice_usage.seconds + CASE WHEN voice_usage.last_beat IS NULL THEN 0 ELSE LEAST(20, GREATEST(0, EXTRACT(EPOCH FROM (now() - voice_usage.last_beat))::int)) END,
+           last_beat = now()`, userId);
+    } catch { return; }
+    if ((await this.usedToday(userId)) >= VoiceService.FREE_ROOM_SECONDS) {
+      await this.leaveRoom(userId, roomId);
+      throw this.limitError();
+    }
+  }
+
   async joinRoom(userId: string, roomId: string) {
+    await this.assertRoomTime(userId);
     const room = await this.getRoom(roomId);
     if (!room.isLive) throw new ForbiddenException('Room is closed');
     if (await this.safety.isBlockedEitherWay(userId, room.hostId)) {
@@ -204,6 +259,7 @@ export class VoiceService implements OnModuleInit {
   }
 
   async getToken(userId: string, roomId: string) {
+    await this.assertRoomTime(userId);
     const room = await this.getRoom(roomId);
     if (!room.isLive) throw new ForbiddenException('Room is closed');
     const me = room.participants.find((p) => p.userId === userId);

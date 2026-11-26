@@ -20,8 +20,14 @@ export class VoiceController {
     return this.voice.listRooms(live !== 'false', user.id);
   }
 
+  @Get('voice-usage')
+  usage(@CurrentUser() user: AuthUser) {
+    return this.voice.usage(user.id);
+  }
+
   @Get('voice-rooms/:id')
-  get(@Param('id', ParseUUIDPipe) id: string) {
+  async get(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    await this.voice.tickRoomTime(user.id, id);
     return this.voice.getRoom(id);
   }
 
