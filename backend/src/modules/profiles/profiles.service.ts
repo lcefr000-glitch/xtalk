@@ -56,6 +56,7 @@ export class ProfilesService {
     const blocked = await this.prisma.block.findFirst({
       where: { OR: [{ blockerId: viewerId, blockedId: id }, { blockerId: id, blockedId: viewerId }] },
     });
+    if (blocked && blocked.blockerId === id) throw new ForbiddenException('BLOCKED_BY_USER');
     if (blocked || (viewerId !== id && (await this.safety.isCountryBlockedEitherWay(viewerId, id)))) throw new ForbiddenException('Profile unavailable');
     const isSelf = viewerId === id;
     if (!user.profile.profileIsPublic && !isSelf) throw new ForbiddenException('This profile is private');

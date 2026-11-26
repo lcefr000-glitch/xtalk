@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, OnModuleInit, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
@@ -6,12 +6,39 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { ResolveReportDto } from './dto/admin.dto';
 
 @Injectable()
-export class AdminService {
+export class AdminService implements OnModuleInit {
+  private readonly log = new Logger('Admin');
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
   ) {}
+
+  /** Idempotent first-admin bootstrap from ADMIN_EMAIL / ADMIN_PASSWORD. The password is never logged. */
+  async onModuleInit() {
+    const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+    const password = process.env.ADMIN_PASSWORD;
+    if (!email || !password) return;
+    try {
+      const existing = await this.prisma.adminUser.findUnique({ where: { email } });
+      if (!existing) {
+        await this.prisma.adminUser.create({ data: { email, passwordHash: await argon2.hash(password), role: 'SUPER_ADMIN', isActive: true } });
+        this.log.log('admin account created from ADMIN_EMAIL');
+      } else {
+        const same = await argon2.verify(existing.passwordHash, password).catch(() => false);
+        if (!same || !existing.isActive || existing.role !== 'SUPER_ADMIN') {
+          await this.prisma.adminUser.update({
+            where: { email },
+            data: { passwordHash: same ? existing.passwordHash : await argon2.hash(password), isActive: true, role: 'SUPER_ADMIN' },
+          });
+          this.log.log('admin account updated from ADMIN_EMAIL');
+        }
+      }
+    } catch (e) {
+      this.log.error('admin bootstrap failed: ' + (e as Error).message);
+    }
+  }
 
   async login(email: string, password: string) {
     const admin = await this.prisma.adminUser.findUnique({ where: { email: email.toLowerCase() } });

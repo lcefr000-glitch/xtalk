@@ -12,6 +12,13 @@ class ExtrasDto {
   @IsOptional() @IsString() @MaxLength(4) mbti?: string;
   @IsOptional() @IsString() @MaxLength(3) bloodType?: string;
   @IsOptional() @IsString() @MaxLength(120) tagline?: string;
+  /** Read-only on this route (use PUT me/cover); accepted so a round-tripped profile does not fail validation. */
+  @IsOptional() @IsString() coverUrl?: string;
+}
+
+class CoverDto {
+  @IsString()
+  coverUrl!: string;
 }
 
 class WishlistDto {
@@ -35,6 +42,11 @@ export class ProfileExtrasController {
   @Put('me')
   save(@CurrentUser() user: AuthUser, @Body() dto: ExtrasDto) {
     return this.extras.save(user.id, dto);
+  }
+
+  @Put('me/cover')
+  setCover(@CurrentUser() user: AuthUser, @Body() dto: CoverDto) {
+    return this.extras.setCover(user.id, dto.coverUrl);
   }
 
   @Put('me/wishlist')

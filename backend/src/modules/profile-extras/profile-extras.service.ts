@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, Logger, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { levelFor } from '../economy/economy.service';
 
@@ -39,6 +39,7 @@ export class ProfileExtrasService implements OnModuleInit {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
       );
+      await this.prisma.$executeRawUnsafe(`ALTER TABLE profile_extras ADD COLUMN IF NOT EXISTS cover_url TEXT`);
       await this.prisma.$executeRawUnsafe(
         `CREATE TABLE IF NOT EXISTS user_wishlist (
           user_id TEXT NOT NULL, gift_id TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0,
@@ -65,6 +66,7 @@ export class ProfileExtrasService implements OnModuleInit {
       mbti: r?.mbti ?? '',
       bloodType: r?.blood_type ?? '',
       tagline: r?.tagline ?? '',
+      coverUrl: r?.cover_url ?? '',
     };
   }
 
@@ -77,7 +79,8 @@ export class ProfileExtrasService implements OnModuleInit {
   async save(userId: string, input: ExtrasInput) {
     this.ensureReady();
     const cur = await this.get(userId);
-    const next: Record<string, string> = { ...cur };
+    const { coverUrl: _keepCover, ...curRest } = cur as Record<string, string>;
+    const next: Record<string, string> = { ...curRest };
     for (const f of FIELDS) {
       const v = input[f.key];
       if (typeof v === 'string') next[f.key] = v.trim().slice(0, f.max);
@@ -88,6 +91,19 @@ export class ProfileExtrasService implements OnModuleInit {
       ON CONFLICT (user_id) DO UPDATE SET hometown = ${next.hometown}, occupation = ${next.occupation}, school = ${next.school},
         gender = ${next.gender}, mbti = ${next.mbti}, blood_type = ${next.bloodType}, tagline = ${next.tagline}, updated_at = now()`;
     return next;
+  }
+
+  /** Cover/background picture as a small JPEG data URI (the API body limit is about 100 KB). Empty string removes it. */
+  async setCover(userId: string, coverUrl: string) {
+    this.ensureReady();
+    const v = (coverUrl ?? '').trim();
+    if (v !== '' && (!/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(v) || v.length > 90_000)) {
+      throw new BadRequestException('Cover must be a small JPEG (max about 65 KB)');
+    }
+    await this.prisma.$executeRaw`
+      INSERT INTO profile_extras (user_id, cover_url) VALUES (${userId}, ${v === '' ? null : v})
+      ON CONFLICT (user_id) DO UPDATE SET cover_url = ${v === '' ? null : v}, updated_at = now()`;
+    return { coverUrl: v };
   }
 
   private async assertVisible(viewerId: string, userId: string) {

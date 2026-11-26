@@ -67,9 +67,9 @@ export class SubscriptionsService {
         status: 'ACTIVE',
         OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
       },
-      select: { userId: true },
+      select: { userId: true, expiresAt: true },
     });
-    return { vipIds: rows.map((r) => r.userId) };
+    return { vipIds: rows.map((r) => r.userId), lifetimeIds: rows.filter((r) => r.expiresAt === null).map((r) => r.userId) };
   }
 
   history(userId: string) {

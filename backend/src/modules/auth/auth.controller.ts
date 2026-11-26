@@ -29,6 +29,14 @@ export class AuthController {
     return this.auth.login(dto, { ip, userAgent: ua });
   }
 
+  /** Web client ID the app must request ID tokens for (first entry of GOOGLE_CLIENT_ID). Not a secret. */
+  @Public()
+  @Get('google/config')
+  googleConfig() {
+    const id = (process.env.GOOGLE_CLIENT_ID ?? '').split(',').map((x) => x.trim()).filter(Boolean)[0];
+    return { clientId: id ?? null };
+  }
+
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @HttpCode(200)
