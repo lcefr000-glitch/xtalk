@@ -204,7 +204,7 @@ export class EconomyService implements OnModuleInit {
     >`
       SELECT g.id, g.sender_id, g.receiver_id, g.gift_id, g.coins, g.created_at, w.total_spent AS sender_spent
       FROM gift_transactions g LEFT JOIN economy_wallets w ON w.user_id = g.sender_id
-      WHERE g.room_id = ${roomId} AND g.created_at > ${since}
+      WHERE g.room_id = ${roomId} AND date_trunc('milliseconds', g.created_at) > ${since}
       ORDER BY g.created_at ASC LIMIT 50`;
     return rows.map((r) => ({
       id: r.id, senderId: r.sender_id, receiverId: r.receiver_id, giftId: r.gift_id, coins: r.coins,
