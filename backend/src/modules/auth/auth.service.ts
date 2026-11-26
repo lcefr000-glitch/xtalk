@@ -75,6 +75,11 @@ export class AuthService {
     }
     if (age > 120) throw new BadRequestException('Invalid dateOfBirth');
 
+    const stale = await this.prisma.user.findMany({
+      where: { OR: [{ email: dto.email }, { username: dto.username }], NOT: { status: 'ACTIVE' }, deletedAt: { not: null } },
+      select: { id: true },
+    });
+    for (const u of stale) await this.releaseDeleted(u.id);
     const existing = await this.prisma.user.findFirst({
       where: { OR: [{ email: dto.email }, { username: dto.username }] },
       select: { email: true, username: true },
@@ -341,11 +346,23 @@ export class AuthService {
     return { email: String(payload.email).toLowerCase(), name: payload.name, picture: payload.picture };
   }
 
+  private async releaseDeleted(userId: string) {
+    const tag = userId.replace(/-/g, '').slice(0, 12);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { email: `deleted-${tag}@deleted.invalid`, username: `deleted_${tag}`, deletedAt: new Date(), status: 'DELETED', emailVerified: false },
+    });
+  }
+
   async googleLogin(dto: GoogleLoginDto, meta: RequestMeta = {}) {
     const g = await this.verifyGoogleIdToken(dto.idToken);
-    const existing = await this.prisma.user.findUnique({ where: { email: g.email } });
+    let existing = await this.prisma.user.findUnique({ where: { email: g.email } });
+    if (existing && (existing.deletedAt || existing.status === 'DELETED')) {
+      // A deleted account must not block signing in again: free its email/username and start fresh.
+      await this.releaseDeleted(existing.id);
+      existing = null;
+    }
     if (existing) {
-      if (existing.deletedAt) throw new UnauthorizedException('Invalid credentials');
       if (existing.status === 'SUSPENDED') throw new UnauthorizedException('Account is suspended');
       const user = await this.prisma.user.update({
         where: { id: existing.id },

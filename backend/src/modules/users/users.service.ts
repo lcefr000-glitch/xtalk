@@ -77,7 +77,7 @@ export class UsersService {
     } catch {
       // Never leave the user stuck: fall back to disabling the account and revoking sessions.
       await this.prisma.$transaction([
-        this.prisma.user.update({ where: { id: userId }, data: { deletedAt: now, status: 'DELETED' } }),
+        this.prisma.user.update({ where: { id: userId }, data: { deletedAt: now, status: 'DELETED', email: `deleted-${tag}@deleted.invalid`, username: `deleted_${tag}`, passwordHash: junk, emailVerified: false } }),
         this.prisma.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now } }),
       ]);
     }
