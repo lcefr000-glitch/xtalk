@@ -40,6 +40,21 @@ export class VoiceController {
     return this.voice.requestStage(user.id, id);
   }
 
+  @Post('voice-rooms/:id/stage/invite')
+  inviteStage(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RoomUserDto) {
+    return this.voice.inviteToStage(user.id, id, dto.userId);
+  }
+
+  @Post('voice-rooms/:id/stage/invite/accept')
+  acceptInvite(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.voice.acceptInvite(user.id, id);
+  }
+
+  @Post('voice-rooms/:id/stage/invite/decline')
+  declineInvite(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.voice.declineInvite(user.id, id);
+  }
+
   @Post('voice-rooms/:id/stage/cancel')
   cancelStage(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.voice.cancelStageRequest(user.id, id);

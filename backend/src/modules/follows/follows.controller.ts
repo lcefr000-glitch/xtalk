@@ -33,13 +33,13 @@ export class FollowsController {
 
   @Get('users/:id/followers')
   async userFollowers(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Query('page') page?: string, @Query('limit') limit?: string) {
-    if (user.id !== id && !(await this.privacy.get(id)).showFollowLists) return { total: 0, page: 1, limit: 0, results: [], hidden: true };
+    if (user.id !== id) return { total: 0, page: 1, limit: 0, results: [], hidden: true };
     return this.follows.followers(id, page ? parseInt(page, 10) : 1, limit ? Math.min(parseInt(limit, 10), 50) : 30);
   }
 
   @Get('users/:id/following')
   async userFollowing(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Query('page') page?: string, @Query('limit') limit?: string) {
-    if (user.id !== id && !(await this.privacy.get(id)).showFollowLists) return { total: 0, page: 1, limit: 0, results: [], hidden: true };
+    if (user.id !== id) return { total: 0, page: 1, limit: 0, results: [], hidden: true };
     return this.follows.following(id, page ? parseInt(page, 10) : 1, limit ? Math.min(parseInt(limit, 10), 50) : 30);
   }
 }

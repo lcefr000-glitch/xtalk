@@ -63,6 +63,8 @@ export class VoiceService implements OnModuleInit {
   }
   /** Live queue of listeners asking for the stage (room id -> user ids). In memory on purpose. */
   private readonly stageRequests = new Map<string, Set<string>>();
+  /** Mic invitations sent by the host/moderators; nobody is seated until the invitee accepts. */
+  private readonly stageInvites = new Map<string, Set<string>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -119,6 +121,7 @@ export class VoiceService implements OnModuleInit {
       moderatorIds: mods,
       theme: await this.themeOf(id),
       stageRequests: [...(this.stageRequests.get(id) ?? [])],
+      stageInvites: [...(this.stageInvites.get(id) ?? [])],
     };
   }
 
@@ -168,12 +171,14 @@ export class VoiceService implements OnModuleInit {
 
   async cancelStageRequest(userId: string, roomId: string) {
     this.stageRequests.get(roomId)?.delete(userId);
+    this.stageInvites.get(roomId)?.delete(userId);
     return { success: true };
   }
 
   async rejectStage(actorId: string, roomId: string, userId: string) {
     await this.requireManager(actorId, roomId);
     this.stageRequests.get(roomId)?.delete(userId);
+    this.stageInvites.get(roomId)?.delete(userId);
     return { success: true };
   }
 
@@ -201,6 +206,7 @@ export class VoiceService implements OnModuleInit {
 
   async leaveRoom(userId: string, roomId: string) {
     this.stageRequests.get(roomId)?.delete(userId);
+    this.stageInvites.get(roomId)?.delete(userId);
     await this.prisma.voiceRoomParticipant.updateMany({
       where: { roomId, userId, leftAt: null },
       data: { leftAt: new Date() },
@@ -231,9 +237,49 @@ export class VoiceService implements OnModuleInit {
     }
   }
 
+  async inviteToStage(actorId: string, roomId: string, userId: string) {
+    const room = await this.requireManager(actorId, roomId);
+    if (!room.isLive) throw new ForbiddenException('Room is closed');
+    const target = room.participants.find((p) => p.userId === userId);
+    if (!target) throw new ForbiddenException('That person is not in the room');
+    if (target.role !== 'LISTENER') return { success: true, role: target.role };
+    const speakers = room.participants.filter((p) => p.role === 'HOST' || p.role === 'SPEAKER').length;
+    if (speakers >= 8) throw new ForbiddenException('All seats are taken');
+    const set = this.stageInvites.get(roomId) ?? new Set<string>();
+    set.add(userId);
+    this.stageInvites.set(roomId, set);
+    return { success: true, invited: true };
+  }
+
+  async declineInvite(userId: string, roomId: string) {
+    this.stageInvites.get(roomId)?.delete(userId);
+    return { success: true };
+  }
+
+  async acceptInvite(userId: string, roomId: string) {
+    const set = this.stageInvites.get(roomId);
+    if (!set?.has(userId)) throw new ForbiddenException('No invitation to accept');
+    const room = await this.getRoom(roomId);
+    if (!room.isLive) throw new ForbiddenException('Room is closed');
+    const me = room.participants.find((p) => p.userId === userId);
+    if (!me) throw new ForbiddenException('Join the room first');
+    const speakers = room.participants.filter((p) => p.role === 'HOST' || p.role === 'SPEAKER').length;
+    if (speakers >= 8) throw new ForbiddenException('All seats are taken');
+    set.delete(userId);
+    this.stageRequests.get(roomId)?.delete(userId);
+    this.stageInvites.get(roomId)?.delete(userId);
+    await this.prisma.voiceRoomParticipant.updateMany({ where: { roomId, userId, leftAt: null }, data: { role: 'SPEAKER' } });
+    await this.livekit.setCanPublish(roomId, userId, true);
+    return { success: true, role: 'SPEAKER' };
+  }
+
   async setRole(actorId: string, roomId: string, userId: string, role: 'SPEAKER' | 'LISTENER') {
     const room = await this.requireManager(actorId, roomId);
     this.guardTarget(room, actorId, userId);
+    // Seating someone who did not ask for the stage needs their acceptance: use an invitation instead.
+    if (role === 'SPEAKER' && !(this.stageRequests.get(roomId)?.has(userId))) {
+      throw new ForbiddenException('Send a mic invitation; the person must accept first');
+    }
     if (userId === room.hostId) throw new ForbiddenException('The host keeps a seat');
     if (role === 'SPEAKER') {
       const speakers = room.participants.filter((p) => p.role === 'HOST' || p.role === 'SPEAKER').length;
@@ -244,6 +290,7 @@ export class VoiceService implements OnModuleInit {
       data: { role },
     });
     this.stageRequests.get(roomId)?.delete(userId);
+    this.stageInvites.get(roomId)?.delete(userId);
     await this.livekit.setCanPublish(roomId, userId, role === 'SPEAKER');
     return { success: true };
   }
@@ -267,6 +314,7 @@ export class VoiceService implements OnModuleInit {
     this.guardTarget(room, actorId, userId);
     if (userId === room.hostId) throw new ForbiddenException('Cannot remove the host');
     this.stageRequests.get(roomId)?.delete(userId);
+    this.stageInvites.get(roomId)?.delete(userId);
     await this.prisma.voiceRoomParticipant.updateMany({
       where: { roomId, userId, leftAt: null },
       data: { leftAt: new Date() },
@@ -278,6 +326,7 @@ export class VoiceService implements OnModuleInit {
   async closeRoom(hostId: string, roomId: string) {
     await this.requireHost(hostId, roomId);
     this.stageRequests.delete(roomId);
+    this.stageInvites.delete(roomId);
     await this.prisma.$transaction([
       this.prisma.voiceRoom.update({
         where: { id: roomId },
