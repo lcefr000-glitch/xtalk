@@ -1,8 +1,8 @@
-import { Body, Controller, Get, Header, Param, ParseUUIDPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, UnauthorizedException, Param, ParseUUIDPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator';
 import { AdminLoginDto, ResolveReportDto } from './dto/admin.dto';
-import { AdminGuard } from './admin.guard';
+import { AdminGuard, adminIpAllowed } from './admin.guard';
 import { ADMIN_PANEL_HTML } from './admin-panel.html';
 import { Throttle } from '@nestjs/throttler';
 import { AdminService } from './admin.service';
@@ -25,7 +25,8 @@ export class AdminController {
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @Post('login')
-  login(@Body() dto: AdminLoginDto) {
+  login(@Body() dto: AdminLoginDto, @Req() req: any) {
+    if (!adminIpAllowed(req.ip)) throw new UnauthorizedException('Not allowed from this network');
     return this.admin.login(dto.email, dto.password);
   }
 

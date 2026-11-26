@@ -21,7 +21,7 @@ import { LiveService } from '../live/live.service';
  * Real-time chat gateway (socket.io, path /ws).
  * Auth: client passes the JWT access token in handshake `auth.token`.
  */
-@WebSocketGateway({ path: '/ws', cors: { origin: true } })
+@WebSocketGateway({ path: '/ws', cors: { origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim()) : false } })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(ChatGateway.name);
 
@@ -52,15 +52,44 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.join(`user:${user.id}`);
       await this.prisma.user.update({ where: { id: user.id }, data: { lastActiveAt: new Date() } });
       // Presence fan-out: anyone sharing a conversation sees them online.
-      this.server.emit('presence:online', { userId: user.id });
+      await this.emitPresence(user.id, 'presence:online');
     } catch {
       client.disconnect(true);
     }
   }
 
+  /** Presence goes only to people who share a conversation with the user or follow/are followed by them. */
+  private async emitPresence(userId: string, event: 'presence:online' | 'presence:offline') {
+    try {
+      const mine = await this.prisma.conversationMember.findMany({ where: { userId, leftAt: null }, select: { conversationId: true } });
+      const [co, follows] = await Promise.all([
+        mine.length
+          ? this.prisma.conversationMember.findMany({
+              where: { conversationId: { in: mine.map((m) => m.conversationId) }, leftAt: null, userId: { not: userId } },
+              select: { userId: true },
+              take: 2000,
+            })
+          : Promise.resolve([] as { userId: string }[]),
+        this.prisma.follow.findMany({
+          where: { OR: [{ followerId: userId }, { followingId: userId }] },
+          select: { followerId: true, followingId: true },
+          take: 2000,
+        }),
+      ]);
+      const ids = new Set<string>(co.map((c) => c.userId));
+      for (const f of follows) ids.add(f.followerId === userId ? f.followingId : f.followerId);
+      ids.delete(userId);
+      if (ids.size === 0) return;
+      const target = this.server.to([...ids].map((id) => `user:${id}`));
+      target.emit(event, { userId });
+    } catch (e) {
+      this.logger.warn(`presence fan-out failed: ${(e as Error).message}`);
+    }
+  }
+
   async handleDisconnect(client: Socket) {
     const userId = client.data.userId as string | undefined;
-    if (userId) this.server.emit('presence:offline', { userId });
+    if (userId) await this.emitPresence(userId, 'presence:offline');
     // Live streams the socket was watching lose a viewer.
     const streams = (client.data.liveStreams as Set<string> | undefined) ?? new Set<string>();
     for (const streamId of streams) {

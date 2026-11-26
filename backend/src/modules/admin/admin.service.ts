@@ -51,9 +51,9 @@ export class AdminService implements OnModuleInit {
     if (!ok) throw new UnauthorizedException('Invalid credentials');
     const token = await this.jwt.signAsync(
       { sub: admin.id, admin: true, role: admin.role },
-      { expiresIn: '8h' },
+      { expiresIn: '2h' },
     );
-    return { accessToken: token, role: admin.role, expiresIn: 8 * 3600 };
+    return { accessToken: token, role: admin.role, expiresIn: 2 * 3600 };
   }
 
   async stats() {

@@ -5,6 +5,14 @@ import { AppConfig } from '../../config/configuration';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ControlService } from '../control/control.service';
 
+/** Optional allow-list: ADMIN_ALLOWED_IPS=1.2.3.4,5.6.7.8 limits the admin API and panel login to those client IPs. Unset = no IP limit. */
+export function adminIpAllowed(ip: string | undefined): boolean {
+  const list = (process.env.ADMIN_ALLOWED_IPS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+  if (list.length === 0) return true;
+  const clean = (ip ?? '').replace(/^::ffff:/, '');
+  return list.includes(clean);
+}
+
 /** Admin-only guard: expects a JWT issued by /admin/login (claim admin=true). */
 @Injectable()
 export class AdminGuard implements CanActivate {
@@ -17,6 +25,7 @@ export class AdminGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest();
+    if (!adminIpAllowed(req.ip)) throw new UnauthorizedException('Not allowed from this network');
     const header = req.headers.authorization as string | undefined;
     const token = header?.startsWith('Bearer ') ? header.slice(7) : undefined;
     if (!token) throw new UnauthorizedException('Missing admin token');
