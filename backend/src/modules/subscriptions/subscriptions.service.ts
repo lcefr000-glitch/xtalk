@@ -59,6 +59,19 @@ export class SubscriptionsService {
     return { ...(await this.mySubscription(userId)), testMode: true, tier };
   }
 
+  async vipLookup(ids: string[]) {
+    const rows = await this.prisma.subscription.findMany({
+      where: {
+        userId: { in: ids.slice(0, 100) },
+        plan: 'PREMIUM',
+        status: 'ACTIVE',
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
+      select: { userId: true },
+    });
+    return { vipIds: rows.map((r) => r.userId) };
+  }
+
   history(userId: string) {
     return this.prisma.paymentTransaction.findMany({
       where: { userId },

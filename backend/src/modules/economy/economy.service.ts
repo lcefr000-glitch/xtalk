@@ -91,6 +91,19 @@ export class EconomyService implements OnModuleInit {
     return { userId, level: levelFor(rows[0]?.total_spent ?? 0) };
   }
 
+  async levelsOf(ids: string[]) {
+    this.ensureReady();
+    const clean = Array.from(new Set(ids.filter((x) => typeof x === 'string' && x.length > 0))).slice(0, 100);
+    const levels: Record<string, number> = {};
+    for (const id of clean) levels[id] = 1;
+    if (clean.length) {
+      const rows = await this.prisma.$queryRaw<{ user_id: string; total_spent: number }[]>`
+        SELECT user_id, total_spent FROM economy_wallets WHERE user_id = ANY(${clean}::text[])`;
+      for (const r of rows) levels[r.user_id] = levelFor(r.total_spent ?? 0);
+    }
+    return { levels };
+  }
+
   /** TEST ONLY: free coins, no payment. Disabled with DEV_BILLING=off. */
   async testGrant(userId: string) {
     this.ensureReady();

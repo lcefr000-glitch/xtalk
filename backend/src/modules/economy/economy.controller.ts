@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsString, IsUUID } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsString, IsUUID } from 'class-validator';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { EconomyService } from './economy.service';
 
@@ -13,6 +13,13 @@ class SendGiftDto {
 
   @IsString()
   giftId!: string;
+}
+
+class LevelsDto {
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsString({ each: true })
+  ids!: string[];
 }
 
 @ApiTags('economy')
@@ -29,6 +36,12 @@ export class EconomyController {
   @Get('gifts')
   gifts() {
     return this.economy.gifts();
+  }
+
+  @Post('levels')
+  @HttpCode(200)
+  levels(@Body() dto: LevelsDto) {
+    return this.economy.levelsOf(dto.ids);
   }
 
   @Get('level/:userId')
