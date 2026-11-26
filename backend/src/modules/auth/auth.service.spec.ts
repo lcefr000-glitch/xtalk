@@ -77,6 +77,15 @@ describe('AuthService', () => {
     jwt = module.get(JwtService);
   });
 
+  it('locks the account for 15 minutes after 5 failed logins and does not reveal whether the email exists', async () => {
+    prisma.user.findUnique.mockResolvedValue(null);
+    for (let i = 0; i < 5; i++) {
+      await expect(service.login({ email: 'Victim@Example.com', password: 'wrong-pass-1' } as any)).rejects.toThrow('Invalid credentials');
+    }
+    await expect(service.login({ email: 'victim@example.com', password: 'wrong-pass-1' } as any)).rejects.toThrow(/Too many attempts/);
+    expect(prisma.user.findUnique).toHaveBeenCalledTimes(5);
+  });
+
   it('registers a new user, hashes the password and returns a token pair', async () => {
     prisma.user.findFirst.mockResolvedValue(null);
     prisma.$transaction.mockImplementation(async (fn: any) =>

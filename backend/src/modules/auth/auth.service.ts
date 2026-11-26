@@ -108,7 +108,7 @@ export class AuthService {
 
   // ---------- Login / session ----------
 
-  private readonly fails = new Map<string, { n: number; until: number }>();
+  private readonly fails = new Map<string, { n: number; last: number; until: number }>();
 
   async login(dto: LoginDto, meta: RequestMeta = {}) {
     const key = String(dto.email).toLowerCase();
@@ -119,8 +119,8 @@ export class AuthService {
     } catch (e) {
       if (e instanceof UnauthorizedException) {
         const cur = this.fails.get(key);
-        const n = (cur && cur.until + 900_000 > Date.now() ? cur.n : 0) + 1;
-        this.fails.set(key, { n, until: n >= 5 ? Date.now() + 900_000 : 0 });
+        const n = (cur && cur.last + 900_000 > Date.now() ? cur.n : 0) + 1;
+        this.fails.set(key, { n, last: Date.now(), until: n >= 5 ? Date.now() + 900_000 : 0 });
         if (this.fails.size > 5000) this.fails.clear();
       }
       throw e;

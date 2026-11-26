@@ -1,8 +1,10 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, Param, ParseUUIDPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator';
 import { AdminLoginDto, ResolveReportDto } from './dto/admin.dto';
 import { AdminGuard } from './admin.guard';
+import { ADMIN_PANEL_HTML } from './admin-panel.html';
+import { Throttle } from '@nestjs/throttler';
 import { AdminService } from './admin.service';
 
 @ApiTags('admin')
@@ -12,6 +14,16 @@ export class AdminController {
   constructor(private readonly admin: AdminService) {}
 
   @Public()
+  @Get('panel')
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  @Header('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'")
+  @Header('X-Robots-Tag', 'noindex')
+  panel() {
+    return ADMIN_PANEL_HTML;
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @Post('login')
   login(@Body() dto: AdminLoginDto) {
     return this.admin.login(dto.email, dto.password);
