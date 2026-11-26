@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsOptional, IsString, MaxLength } from 'class-validator';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ProfileExtrasService } from './profile-extras.service';
 
@@ -12,6 +12,13 @@ class ExtrasDto {
   @IsOptional() @IsString() @MaxLength(4) mbti?: string;
   @IsOptional() @IsString() @MaxLength(3) bloodType?: string;
   @IsOptional() @IsString() @MaxLength(120) tagline?: string;
+}
+
+class WishlistDto {
+  @IsArray()
+  @ArrayMaxSize(3)
+  @IsString({ each: true })
+  giftIds!: string[];
 }
 
 @ApiTags('profile-extras')
@@ -28,6 +35,16 @@ export class ProfileExtrasController {
   @Put('me')
   save(@CurrentUser() user: AuthUser, @Body() dto: ExtrasDto) {
     return this.extras.save(user.id, dto);
+  }
+
+  @Put('me/wishlist')
+  setWishlist(@CurrentUser() user: AuthUser, @Body() dto: WishlistDto) {
+    return this.extras.setWishlist(user.id, dto.giftIds);
+  }
+
+  @Get(':userId/wishlist')
+  wishlist(@CurrentUser() user: AuthUser, @Param('userId') userId: string) {
+    return this.extras.wishlistOf(user.id, userId);
   }
 
   @Get(':userId')

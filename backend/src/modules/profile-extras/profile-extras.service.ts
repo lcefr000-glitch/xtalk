@@ -39,6 +39,12 @@ export class ProfileExtrasService implements OnModuleInit {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
       );
+      await this.prisma.$executeRawUnsafe(
+        `CREATE TABLE IF NOT EXISTS user_wishlist (
+          user_id TEXT NOT NULL, gift_id TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (user_id, gift_id)
+        )`,
+      );
       this.ready = true;
       this.log.log('profile_extras table ready');
     } catch (e) {
@@ -97,6 +103,22 @@ export class ProfileExtrasService implements OnModuleInit {
   async getFor(viewerId: string, userId: string) {
     await this.assertVisible(viewerId, userId);
     return this.get(userId);
+  }
+
+  async wishlistOf(viewerId: string, userId: string) {
+    await this.assertVisible(viewerId, userId);
+    const rows = await this.prisma.$queryRaw<{ gift_id: string }[]>`SELECT gift_id FROM user_wishlist WHERE user_id = ${userId} ORDER BY position`;
+    return { giftIds: rows.map((r) => r.gift_id) };
+  }
+
+  async setWishlist(userId: string, giftIds: string[]) {
+    this.ensureReady();
+    const ids = Array.from(new Set(giftIds.filter((g) => typeof g === 'string' && g.length > 0 && g.length <= 40))).slice(0, 3);
+    await this.prisma.$executeRaw`DELETE FROM user_wishlist WHERE user_id = ${userId}`;
+    for (let i = 0; i < ids.length; i++) {
+      await this.prisma.$executeRaw`INSERT INTO user_wishlist (user_id, gift_id, position) VALUES (${userId}, ${ids[i]}, ${i}) ON CONFLICT DO NOTHING`;
+    }
+    return { giftIds: ids };
   }
 
   async postsOf(viewerId: string, userId: string, before?: string, limit = 20) {
