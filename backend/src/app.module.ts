@@ -6,6 +6,7 @@ import { configuration } from './config/configuration';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { JwtAuthGuard } from './modules/auth/jwt-auth.guard';
 import { AuthModule } from './modules/auth/auth.module';
+import { LegalModule } from './modules/legal/legal.module';
 import { UsersModule } from './modules/users/users.module';
 import { ProfilesModule } from './modules/profiles/profiles.module';
 import { LanguagesModule } from './modules/languages/languages.module';
@@ -64,6 +65,7 @@ import { LiveModule } from './modules/live/live.module';
     MediaModule,
     PrivacyModule,
     AdminModule,
+    LegalModule,
     ProgressModule,
     VocabularyModule,
     FriendsModule,
