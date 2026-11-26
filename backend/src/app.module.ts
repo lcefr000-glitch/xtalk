@@ -21,6 +21,8 @@ import { PostsModule } from './modules/posts/posts.module';
 import { VoiceModule } from './modules/voice/voice.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { EconomyModule } from './modules/economy/economy.module';
+import { ChatExtrasModule } from './modules/chat-extras/chat-extras.module';
+import { ProfileExtrasModule } from './modules/profile-extras/profile-extras.module';
 import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
@@ -45,6 +47,8 @@ import { AdminModule } from './modules/admin/admin.module';
     VoiceModule,
     SubscriptionsModule,
     EconomyModule,
+    ChatExtrasModule,
+    ProfileExtrasModule,
     AdminModule,
   ],
   providers: [
