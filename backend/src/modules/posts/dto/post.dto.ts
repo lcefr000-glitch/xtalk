@@ -14,7 +14,7 @@ export class CreatePostDto {
 
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(4)
+  @ArrayMaxSize(9)
   @IsUrl({ require_tld: false }, { each: true })
   imageUrls?: string[];
 }

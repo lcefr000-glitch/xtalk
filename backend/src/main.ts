@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
+import { raw } from 'express';
 import { AppModule } from './app.module';
 import { ControlService } from './modules/control/control.service';
 import { controlMiddleware } from './modules/control/control.middleware';
@@ -20,6 +21,7 @@ async function bootstrap() {
   if (process.env.TRUST_PROXY) app.set('trust proxy', parseInt(process.env.TRUST_PROXY, 10) || 1);
   else if (isProd) app.set('trust proxy', 1);
   app.use(helmet());
+  app.use('/api/v1/media', raw({ type: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], limit: '6mb' }));
   app.use(controlMiddleware(app.get(ControlService)));
   // Mobile client: allow all origins in dev. Restrict to known origins in production.
   // Optional allow-list: CORS_ORIGINS=https://a.com,https://b.com (the mobile app does not need CORS).

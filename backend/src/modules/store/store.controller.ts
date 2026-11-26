@@ -23,6 +23,11 @@ class BuyVipDto {
 export class StoreController {
   constructor(private readonly store: StoreService) {}
 
+  @Get('vip/status')
+  vipStatus(@CurrentUser() user: AuthUser) {
+    return this.store.vipStatus(user.id);
+  }
+
   @Get('catalog')
   catalog() {
     return this.store.catalog();

@@ -73,6 +73,9 @@ export class StoreService implements OnModuleInit {
           user_id TEXT PRIMARY KEY, coins INTEGER NOT NULL DEFAULT 0 CHECK (coins >= 0),
           total_spent INTEGER NOT NULL DEFAULT 0, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
       );
+      await this.prisma.$executeRawUnsafe(
+        `CREATE TABLE IF NOT EXISTS vip_meta (user_id TEXT PRIMARY KEY, tier TEXT NOT NULL, started_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
+      );
       this.ready = true;
       this.log.log('store tables ready');
     } catch (e) {
@@ -140,11 +143,39 @@ export class StoreService implements OnModuleInit {
       base.setMonth(base.getMonth() + plan.months);
       expiresAt = base;
     }
-    return this.prisma.subscription.upsert({
+    const sub = await this.prisma.subscription.upsert({
       where: { userId },
       create: { userId, plan: 'PREMIUM', status: 'ACTIVE', expiresAt },
       update: { plan: 'PREMIUM', status: 'ACTIVE', expiresAt },
     });
+    try {
+      await this.prisma.$executeRaw`
+        INSERT INTO vip_meta (user_id, tier) VALUES (${userId}, ${tier})
+        ON CONFLICT (user_id) DO UPDATE SET tier = EXCLUDED.tier,
+          started_at = CASE WHEN ${curActive} THEN vip_meta.started_at ELSE now() END, updated_at = now()`;
+    } catch (e) { this.log.warn('vip_meta failed: ' + (e as Error).message); }
+    return sub;
+  }
+
+  /** Real VIP state from the subscription row; tier is known only for VIPs granted after this feature shipped. */
+  async vipStatus(userId: string) {
+    const sub = await this.prisma.subscription.findUnique({ where: { userId } });
+    const now = new Date();
+    const active = !!sub && sub.plan === 'PREMIUM' && sub.status === 'ACTIVE' && (sub.expiresAt === null || sub.expiresAt > now);
+    if (!active) return { active: false, lifetime: false, tier: null, startedAt: null, expiresAt: null, secondsLeft: 0, serverTime: now.toISOString() };
+    let tier: string | null = null;
+    let startedAt: Date | null = null;
+    try {
+      const r = await this.prisma.$queryRaw<{ tier: string; started_at: Date }[]>`SELECT tier, started_at FROM vip_meta WHERE user_id = ${userId}`;
+      if (r.length) { tier = r[0].tier; startedAt = r[0].started_at; }
+    } catch { /* optional */ }
+    const lifetime = sub!.expiresAt === null;
+    if (lifetime) tier = 'life';
+    return {
+      active: true, lifetime, tier, startedAt, expiresAt: sub!.expiresAt,
+      secondsLeft: lifetime ? null : Math.max(0, Math.floor((sub!.expiresAt!.getTime() - now.getTime()) / 1000)),
+      serverTime: now.toISOString(),
+    };
   }
 
   async wallet(userId: string) {
