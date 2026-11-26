@@ -21,6 +21,11 @@ data class AuthUiState(
     val devVerificationToken: String? = null,
     val emailVerified: Boolean = false,
     val resent: Boolean = false,
+    val status: String? = null,
+    val googleToken: String? = null,
+    val googleNeedsProfile: Boolean = false,
+    val googleName: String = "",
+    val googleSuggested: String = "",
 )
 
 @HiltViewModel
@@ -101,6 +106,36 @@ class AuthViewModel @Inject constructor(
             }
         }
     }
+
+    fun googleStatus(msg: String) = _state.update { it.copy(loading = true, error = null, status = msg) }
+
+    fun googleError(msg: String) = _state.update { it.copy(loading = false, status = null, error = msg) }
+
+    fun googleSignIn(idToken: String, dob: String? = null, username: String? = null) {
+        if (dob != null) {
+            val parsed = Validators.parseDateOfBirth(dob)
+            if (parsed == null) return _state.update { it.copy(error = "Date of birth must be YYYY-MM-DD") }
+            if (!Validators.isOldEnough(parsed)) return _state.update { it.copy(error = "You must be at least 13 years old") }
+            if (username == null || !Validators.isValidUsername(username)) return _state.update { it.copy(error = "Username: 3-20 lowercase letters, digits or _") }
+        }
+        _state.update { it.copy(loading = true, error = null) }
+        viewModelScope.launch {
+            val res0 = try { repository.google(idToken, dob?.trim(), username?.trim()?.lowercase()) } catch (e: Throwable) {
+                _state.update { it.copy(loading = false, status = null, error = "Server reply could not be processed: " + e.javaClass.name + ": " + (e.message ?: "")) }
+                return@launch
+            }
+            when (val res = res0) {
+                is ApiResult.Success ->
+                    if (res.data.needsProfile) _state.update {
+                        it.copy(loading = false, status = "4/4 New account: finish the details", googleToken = idToken, googleNeedsProfile = true,
+                            googleName = res.data.name.orEmpty(), googleSuggested = res.data.suggestedUsername.orEmpty())
+                    } else _state.update { it.copy(loading = false, status = null, loggedIn = true, googleNeedsProfile = false) }
+                is ApiResult.Error -> _state.update { it.copy(loading = false, status = null, error = "Server (auth/google) said: " + res.message + (res.code?.let { " [HTTP $it]" } ?: "")) }
+            }
+        }
+    }
+
+    fun cancelGoogleProfile() = _state.update { it.copy(googleNeedsProfile = false, googleToken = null) }
 
     fun consumeError() = _state.update { it.copy(error = null) }
 

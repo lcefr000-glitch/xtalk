@@ -40,8 +40,8 @@ class TokenStore @Inject constructor(@ApplicationContext context: Context) {
     }
 
     val session: Flow<Session?> = store.data.map { p ->
-        val access = p[K.access]
-        val refresh = p[K.refresh]
+        val access = SecureBox.open(p[K.access])
+        val refresh = SecureBox.open(p[K.refresh])
         if (access.isNullOrBlank() || refresh.isNullOrBlank()) null
         else Session(
             accessToken = access,
@@ -59,8 +59,8 @@ class TokenStore @Inject constructor(@ApplicationContext context: Context) {
 
     suspend fun saveAuth(userId: String, username: String, email: String, tokens: AuthResponse) {
         store.edit { p ->
-            p[K.access] = tokens.accessToken
-            p[K.refresh] = tokens.refreshToken
+            p[K.access] = SecureBox.seal(tokens.accessToken)
+            p[K.refresh] = SecureBox.seal(tokens.refreshToken)
             p[K.refreshExpiry] = tokens.refreshTokenExpiresAt
             p[K.userId] = userId
             p[K.username] = username
@@ -70,8 +70,8 @@ class TokenStore @Inject constructor(@ApplicationContext context: Context) {
 
     suspend fun saveTokens(tokens: TokenPairResponse) {
         store.edit { p ->
-            p[K.access] = tokens.accessToken
-            p[K.refresh] = tokens.refreshToken
+            p[K.access] = SecureBox.seal(tokens.accessToken)
+            p[K.refresh] = SecureBox.seal(tokens.refreshToken)
             p[K.refreshExpiry] = tokens.refreshTokenExpiresAt
         }
     }

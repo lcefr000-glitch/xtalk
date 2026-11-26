@@ -1,2 +1,14 @@
-# Phase 1: no custom rules yet. Keep kotlinx.serialization / Retrofit defaults.
--keepattributes Signature, InnerClasses, EnclosingMethod, *Annotation*
+-keepattributes Signature, InnerClasses, EnclosingMethod, *Annotation*, RuntimeVisibleAnnotations, AnnotationDefault
+-keep class com.xtalk.core.network.** { *; }
+-keep class com.xtalk.** { @retrofit2.http.* <methods>; }
+-keep,allowobfuscation,allowshrinking interface retrofit2.Call
+-keep,allowobfuscation,allowshrinking class kotlin.coroutines.Continuation
+-keep class kotlinx.serialization.** { *; }
+-keepclassmembers class **$$serializer { *; }
+-keepclasseswithmembers class com.xtalk.** { kotlinx.serialization.KSerializer serializer(...); }
+-keep class io.livekit.** { *; }
+-keep class org.webrtc.** { *; }
+-dontwarn org.webrtc.**
+-dontwarn okhttp3.internal.platform.**
+-dontwarn org.conscrypt.**
+-assumenosideeffects class android.util.Log { public static *** d(...); public static *** v(...); public static *** i(...); }

@@ -22,6 +22,7 @@ data class ProfileUiState(
     val saving: Boolean = false,
     val saved: Boolean = false,
     val loggedOut: Boolean = false,
+    val photoError: Boolean = false,
 )
 
 @HiltViewModel
@@ -46,11 +47,13 @@ class ProfileViewModel @Inject constructor(
         }
     }
 
-    fun saveBio(bio: String, country: String?) {
+    fun saveBio(bio: String, country: String?, displayName: String? = null, interests: List<String>? = null) {
         _state.update { it.copy(saving = true, saved = false) }
         viewModelScope.launch {
             when (val res = repository.updateProfile(
                 UpdateProfileRequest(
+                    displayName = displayName?.trim()?.takeIf { it.isNotBlank() },
+                    interests = interests,
                     bio = bio.trim().ifBlank { null },
                     country = country?.trim()?.uppercase()?.ifBlank { null },
                 ),
@@ -60,6 +63,20 @@ class ProfileViewModel @Inject constructor(
                     refresh()
                 }
                 is ApiResult.Error -> _state.update { it.copy(saving = false, error = res.message) }
+            }
+        }
+    }
+
+    fun setPhoto(ctx: android.content.Context, uri: android.net.Uri) {
+        _state.update { it.copy(saving = true, photoError = false) }
+        viewModelScope.launch {
+            val data = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.xtalk.app.core.common.ImageUtil.pickedToDataUri(ctx, uri)
+            }
+            if (data == null) { _state.update { it.copy(saving = false, photoError = true) }; return@launch }
+            when (repository.updateProfile(UpdateProfileRequest(photoUrl = data))) {
+                is ApiResult.Success -> { _state.update { it.copy(saving = false) }; refresh() }
+                is ApiResult.Error -> _state.update { it.copy(saving = false, photoError = true) }
             }
         }
     }

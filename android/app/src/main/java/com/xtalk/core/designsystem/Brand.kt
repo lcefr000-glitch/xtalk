@@ -21,6 +21,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
@@ -85,7 +86,7 @@ fun XTalkWordmark(sizeSp: Int = 34) {
 
 /** Circle avatar with initial, optional country flag badge and online dot. */
 @Composable
-fun XAvatar(name: String, size: Dp, flag: String? = null, online: Boolean = false, modifier: Modifier = Modifier) {
+fun XAvatar(name: String, size: Dp, flag: String? = null, online: Boolean = false, modifier: Modifier = Modifier, photoUrl: String? = null) {
     Box(modifier.size(size)) {
         Box(
             Modifier.fillMaxSize().clip(CircleShape).background(
@@ -93,7 +94,22 @@ fun XAvatar(name: String, size: Dp, flag: String? = null, online: Boolean = fals
             ),
             contentAlignment = Alignment.Center,
         ) {
-            Text(name.trim().take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = (size.value * 0.42f).sp)
+            val bmp = androidx.compose.runtime.remember(photoUrl) { com.xtalk.app.core.common.ImageUtil.decodeDataUri(photoUrl) }
+            if (bmp != null) {
+                androidx.compose.foundation.Image(
+                    bitmap = bmp.asImageBitmap(), contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                )
+            } else if (photoUrl != null && photoUrl.startsWith("http")) {
+                coil.compose.AsyncImage(
+                    model = photoUrl, contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                )
+            } else {
+                Text(name.trim().take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = (size.value * 0.42f).sp)
+            }
         }
         if (!flag.isNullOrBlank()) {
             Box(

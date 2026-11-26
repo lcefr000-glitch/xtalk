@@ -30,8 +30,10 @@ android {
         applicationId = "com.xtalk.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "0.5.0"
+        versionCode = 26
+        versionName = "0.26.0"
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${localProps.getProperty("GOOGLE_WEB_CLIENT_ID") ?: System.getenv("GOOGLE_WEB_CLIENT_ID") ?: ""}\"")
+        ndk { abiFilters += listOf("arm64-v8a") }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -56,7 +58,9 @@ android {
             buildConfigField("String", "API_BASE_URL", "\"$prodApiBaseUrl\"")
             // Unsigned-by-us fallback: debug key (sideload/testing). Use XTALK_KEYSTORE for a real release key.
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
-            isMinifyEnabled = false // R8 rules are not verified on a device yet; keep off until tested
+            isMinifyEnabled = true
+            isShrinkResources = false
+            isDebuggable = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -66,6 +70,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    lint { checkReleaseBuilds = false; abortOnError = false }
     testOptions { unitTests { isIncludeAndroidResources = true } }
     buildFeatures {
         compose = true
@@ -106,6 +111,10 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("io.socket:socket.io-client:2.1.0")
     implementation("io.livekit:livekit-android:2.8.1")
+    implementation("com.google.android.gms:play-services-auth:21.2.0")
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")

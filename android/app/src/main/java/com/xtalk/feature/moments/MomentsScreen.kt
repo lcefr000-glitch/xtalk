@@ -1,6 +1,15 @@
 package com.xtalk.app.feature.moments
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -53,47 +62,125 @@ fun MomentsScreen(viewModel: MomentsViewModel = hiltViewModel()) {
                     enabled = draft.isNotBlank() && !state.publishing,
                 ) { Text("Publish") }
             },
-            dismissButton = { TextButton(onClick = { composing = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { composing = false }) { Text(androidx.compose.ui.res.stringResource(com.xtalk.app.R.string.n_cancel)) } },
         )
     }
 
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Moments", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-            Button(onClick = { composing = true }) { Text("Post") }
+    Column(Modifier.fillMaxSize()) {
+        Box(
+            Modifier.fillMaxWidth().background(com.xtalk.app.core.designsystem.XPurpleBanner)
+                .padding(horizontal = 16.dp, vertical = 18.dp),
+        ) {
+            Column {
+                Text("Moments", fontWeight = FontWeight.Bold, fontSize = 26.sp, color = Color.White)
+                Text("Share what you are learning with people around the world", fontSize = 12.sp, color = Color.White.copy(alpha = 0.8f))
+            }
         }
-        Spacer(Modifier.height(8.dp))
+        Row(
+            Modifier.fillMaxWidth().padding(12.dp).clip(RoundedCornerShape(28.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant).clickable { composing = true }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("What's on your mind?", Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Post", color = com.xtalk.app.core.designsystem.XViolet, fontWeight = FontWeight.Bold)
+        }
         when {
             state.loading -> CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally).padding(32.dp))
-            state.error != null -> Text(state.error!!, color = MaterialTheme.colorScheme.error)
+            state.error != null -> Text(state.error!!, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
             state.posts.isEmpty() -> Text(
                 "No moments yet. Be the first to post.",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(32.dp),
             )
-            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            else -> LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, bottom = 16.dp),
+            ) {
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.FilterChip(selected = state.savedOnly, onClick = { viewModel.toggleSaved() }, label = { Text(androidx.compose.ui.res.stringResource(com.xtalk.app.R.string.n_saved_posts)) })
+                        OutlinedTextField(
+                            value = state.tag, onValueChange = { viewModel.setTag(it) },
+                            placeholder = { Text(androidx.compose.ui.res.stringResource(com.xtalk.app.R.string.n_hashtag)) }, singleLine = true, modifier = Modifier.weight(1f),
+                        )
+                    }
+                    state.note?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant); androidx.compose.runtime.LaunchedEffect(it) { kotlinx.coroutines.delay(2000); viewModel.clearNote() } }
+                }
                 items(state.posts, key = { it.id }) { post ->
+                    var editing by rememberSaveable(post.id) { mutableStateOf(false) }
+                    var editText by rememberSaveable(post.id) { mutableStateOf(post.body) }
+                    if (editing) {
+                        androidx.compose.material3.AlertDialog(
+                            onDismissRequest = { editing = false }, title = { Text(androidx.compose.ui.res.stringResource(com.xtalk.app.R.string.n_edit_post)) },
+                            text = { OutlinedTextField(value = editText, onValueChange = { editText = it.take(2000) }, modifier = Modifier.fillMaxWidth()) },
+                            confirmButton = { TextButton(onClick = { viewModel.edit(post, editText); editing = false }) { Text(androidx.compose.ui.res.stringResource(com.xtalk.app.R.string.n_save)) } },
+                            dismissButton = { TextButton(onClick = { editing = false }) { Text(androidx.compose.ui.res.stringResource(com.xtalk.app.R.string.n_cancel)) } },
+                        )
+                    }
                     var commentDraft by rememberSaveable(post.id) { mutableStateOf("") }
                     var showComment by rememberSaveable(post.id) { mutableStateOf(false) }
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text(post.author.profile?.displayName ?: post.author.username,
-                                style = MaterialTheme.typography.titleSmall)
-                            Text("@${post.author.username}", style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(Modifier.height(6.dp))
-                            Text(post.body, style = MaterialTheme.typography.bodyMedium)
-                            Spacer(Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                TextButton(onClick = { viewModel.toggleLike(post) }) {
-                                    Text(if (post.likedByMe) "Liked (${post.likeCount})" else "Like (${post.likeCount})")
+                    val name = post.author.profile?.displayName ?: post.author.username
+                    Card(
+                        Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(22.dp),
+                        colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    ) {
+                        Column(Modifier.padding(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                com.xtalk.app.core.designsystem.XAvatar(
+                                    name, 42.dp, flag = com.xtalk.app.core.designsystem.flagEmoji(post.author.profile?.country),
+                                    photoUrl = post.author.profile?.photoUrl,
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(name, fontWeight = FontWeight.Bold)
+                                        Spacer(Modifier.width(6.dp))
+                                        com.xtalk.app.feature.common.VipTag(post.author.id)
+                                    }
+                                    Text("@${post.author.username}  \u00B7  ${ago(post.createdAt)}", fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                TextButton(onClick = { showComment = !showComment }) {
-                                    Text("Comments (${post.commentCount})")
+                                post.languageCode?.let {
+                                    Text(it.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                                        color = com.xtalk.app.core.designsystem.XTeal,
+                                        modifier = Modifier.clip(RoundedCornerShape(50)).background(com.xtalk.app.core.designsystem.XTeal.copy(alpha = 0.15f))
+                                            .padding(horizontal = 10.dp, vertical = 4.dp))
                                 }
                             }
+                            Spacer(Modifier.height(12.dp))
+                            Text(post.body, fontSize = 16.sp, lineHeight = 22.sp)
+                            Spacer(Modifier.height(12.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    (if (post.likedByMe) "\u2764 " else "\uD83E\uDD0D ") + post.likeCount,
+                                    color = if (post.likedByMe) com.xtalk.app.core.designsystem.XCoral else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.clip(RoundedCornerShape(50)).clickable { viewModel.toggleLike(post) }
+                                        .background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 14.dp, vertical = 8.dp),
+                                )
+                                Text(
+                                    androidx.compose.ui.res.stringResource(com.xtalk.app.R.string.n_post_save),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.clip(RoundedCornerShape(50)).clickable { viewModel.bookmark(post) }
+                                        .background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 14.dp, vertical = 8.dp),
+                                )
+                                if (post.author.id == state.myId) Text(
+                                    androidx.compose.ui.res.stringResource(com.xtalk.app.R.string.n_edit),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.clip(RoundedCornerShape(50)).clickable { editText = post.body; editing = true }
+                                        .background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 14.dp, vertical = 8.dp),
+                                )
+                                Text(
+                                    "\uD83D\uDCAC ${post.commentCount}",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.clip(RoundedCornerShape(50)).clickable { showComment = !showComment }
+                                        .background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 14.dp, vertical = 8.dp),
+                                )
+                            }
                             if (showComment) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
                                     OutlinedTextField(
                                         value = commentDraft,
                                         onValueChange = { commentDraft = it },
@@ -117,3 +204,13 @@ fun MomentsScreen(viewModel: MomentsViewModel = hiltViewModel()) {
         }
     }
 }
+
+private fun ago(iso: String): String = try {
+    val mins = java.time.Duration.between(java.time.OffsetDateTime.parse(iso).toInstant(), java.time.Instant.now()).toMinutes()
+    when {
+        mins < 1 -> "now"
+        mins < 60 -> "${mins}m"
+        mins < 1440 -> "${mins / 60}h"
+        else -> "${mins / 1440}d"
+    }
+} catch (e: Exception) { "" }

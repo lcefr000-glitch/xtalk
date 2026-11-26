@@ -17,9 +17,17 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -63,7 +71,17 @@ fun HomeShell(
     onOpenVoiceRooms: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenPremium: () -> Unit,
+    onOpenEditProfile: () -> Unit = {},
+    onOpenVocab: () -> Unit = {},
+    onOpenSessions: () -> Unit = {},
+    onOpenTools: () -> Unit = {},
+    onOpenHub: () -> Unit = {},
+    onOpenUser: (String) -> Unit = {},
+    onOpenSettings: () -> Unit = {},
 ) {
+    val roomVm: com.xtalk.app.feature.voice.VoiceRoomsViewModel = hiltViewModel()
+    val roomState by roomVm.state.collectAsStateWithLifecycle()
+    val inRoom = roomState.joinedRoomId != null
     var selected by rememberSaveable { mutableIntStateOf(TAB_VOICE) }
     val chatVm: ChatListViewModel = hiltViewModel()
     val chatState by chatVm.state.collectAsStateWithLifecycle()
@@ -72,7 +90,24 @@ fun HomeShell(
     Scaffold(
         containerColor = XBg,
         bottomBar = {
-            NavigationBar(containerColor = XSurface) {
+            Column {
+            if (inRoom && selected != TAB_VOICE) {
+                val title = roomState.detail?.title ?: roomState.rooms.firstOrNull { it.id == roomState.joinedRoomId }?.title ?: "Voice room"
+                androidx.compose.foundation.layout.Row(
+                    Modifier.fillMaxWidth().background(androidx.compose.ui.graphics.Color(0xFF2A1B6B))
+                        .clickable { selected = TAB_VOICE }.padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("\uD83C\uDF99 " + title, Modifier.weight(1f), maxLines = 1, color = androidx.compose.ui.graphics.Color.White)
+                    if (roomState.canPublish && roomState.link == com.xtalk.app.feature.voice.LinkState.CONNECTED) {
+                        androidx.compose.material3.TextButton(onClick = { roomVm.toggleMic() }) {
+                            Text(if (roomState.micOn) "Mute" else "Unmute")
+                        }
+                    }
+                    androidx.compose.material3.TextButton(onClick = { roomVm.leave() }) { Text("Leave", color = XCoral) }
+                }
+            }
+            if (!(inRoom && selected == TAB_VOICE)) NavigationBar(containerColor = XSurface) {
                 tabs.forEachIndexed { index, tab ->
                     NavigationBarItem(
                         selected = selected == index,
@@ -92,6 +127,7 @@ fun HomeShell(
                     )
                 }
             }
+            }
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
@@ -104,15 +140,21 @@ fun HomeShell(
                     onOpenNotifications = onOpenNotifications,
                     viewModel = chatVm,
                 )
-                TAB_CONNECT -> DiscoverScreen(onOpenChat = onChatWithUser)
+                TAB_CONNECT -> DiscoverScreen(onOpenChat = onChatWithUser, onOpenUser = onOpenUser)
                 TAB_MOMENTS -> MomentsScreen()
-                TAB_VOICE -> VoiceRoomsContent(onOpenPremium = onOpenPremium)
+                TAB_VOICE -> VoiceRoomsContent(onOpenPremium = onOpenPremium, onOpenUser = onOpenUser, onMinimize = { selected = TAB_CONNECT })
                 TAB_ME -> ProfileScreen(
                     onLoggedOut = onLoggedOut,
                     onOpenVoiceRooms = onOpenVoiceRooms,
                     onOpenNotifications = onOpenNotifications,
                     onOpenPremium = onOpenPremium,
                     onOpenMoments = { selected = TAB_MOMENTS },
+                    onOpenSettings = onOpenSettings,
+                    onOpenEditProfile = onOpenEditProfile,
+                    onOpenVocab = onOpenVocab,
+                    onOpenSessions = onOpenSessions,
+                    onOpenTools = onOpenTools,
+                    onOpenHub = onOpenHub,
                 )
             }
         }

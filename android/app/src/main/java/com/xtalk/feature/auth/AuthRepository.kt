@@ -4,6 +4,8 @@ import com.xtalk.app.core.common.ApiResult
 import com.xtalk.app.core.network.AuthApi
 import com.xtalk.app.core.network.AuthResponse
 import com.xtalk.app.core.network.LoginRequest
+import com.xtalk.app.core.network.GoogleLoginRequest
+import com.xtalk.app.core.network.GoogleLoginResponse
 import com.xtalk.app.core.network.RefreshRequest
 import com.xtalk.app.core.network.RegisterRequest
 import com.xtalk.app.core.network.TokenStore
@@ -27,6 +29,17 @@ class AuthRepository @Inject constructor(
 
     suspend fun login(email: String, password: String): ApiResult<AuthResponse> =
         call { authApi.login(LoginRequest(email.trim().lowercase(), password)) }.also { persistIfOk(it) }
+
+    /** Returns Success(null) when the account must be completed (needsProfile) and the profile is in [lastProfile]. */
+    suspend fun google(idToken: String, dob: String?, username: String?): ApiResult<GoogleLoginResponse> {
+        val res = call { authApi.google(GoogleLoginRequest(idToken, dob, username)) }
+        if (res is ApiResult.Success && !res.data.needsProfile) {
+            val r = res.data
+            val auth = AuthResponse(r.user!!, r.accessToken!!, r.accessTokenExpiresIn ?: 900, r.refreshToken!!, r.refreshTokenExpiresAt ?: "")
+            tokenStore.saveAuth(auth.user.id, auth.user.username, auth.user.email, auth)
+        }
+        return res
+    }
 
     suspend fun verifyEmail(token: String): ApiResult<Boolean> =
         when (val res = call { authApi.verifyEmail(mapOf("token" to token.trim())) }) {

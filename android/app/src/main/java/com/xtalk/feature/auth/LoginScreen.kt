@@ -76,23 +76,10 @@ fun LoginScreen(
         ) {
             if (state.loading) CircularProgressIndicator(modifier = Modifier.height(20.dp)) else Text("Log in")
         }
+        GoogleSignInSection(viewModel, state)
         Spacer(Modifier.height(8.dp))
         TextButton(onClick = onGoRegister, modifier = Modifier.fillMaxWidth()) {
             Text("New here? Create an account")
-        }
-        if (BuildConfig.DEBUG) {
-            Spacer(Modifier.height(16.dp))
-            OutlinedTextField(
-                value = server, onValueChange = { server = it },
-                label = { Text("Server URL (debug)") }, singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            TextButton(onClick = {
-                serverMsg = if (ServerConfig.save(ctx, server)) {
-                    "Saved. Fully close and reopen the app to apply."
-                } else "Invalid URL"
-            }, modifier = Modifier.fillMaxWidth()) { Text("Save server URL") }
-            if (serverMsg.isNotEmpty()) Text(serverMsg, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

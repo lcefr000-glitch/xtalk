@@ -2,6 +2,7 @@ package com.xtalk.app.feature.messages
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -67,6 +68,7 @@ import com.xtalk.app.feature.home.TAB_VOICE
 
 private data class Shortcut(val label: Int, val icon: ImageVector, val color: Color, val action: Int)
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun ChatListScreen(
     onOpenChat: (conversationId: String) -> Unit,
@@ -83,10 +85,14 @@ fun ChatListScreen(
     fun other(c: ConversationSummaryDto) = c.members.firstOrNull { it.id != state.myUserId }
     fun nameOf(c: ConversationSummaryDto) = other(c)?.profile?.displayName?.ifBlank { null } ?: other(c)?.username ?: ""
 
+    var showArchived by androidx.compose.runtime.remember { mutableStateOf(false) }
+    var menuFor by androidx.compose.runtime.remember { mutableStateOf<String?>(null) }
     val shown = state.conversations
+        .filter { showArchived == (it.id in state.archived) }
         .filter { query.isBlank() || nameOf(it).contains(query, ignoreCase = true) }
         .filter { filter != 1 || it.unreadCount > 0 }
         .let { l -> if (filter == 2) l.sortedBy { other(it)?.profile?.country ?: "~" } else l }
+        .let { l -> l.sortedByDescending { it.id in state.pinned } }
 
     val shortcuts = listOf(
         Shortcut(R.string.shortcut_discover, Icons.Filled.Explore, XTeal, TAB_CONNECT),
@@ -158,6 +164,16 @@ fun ChatListScreen(
                         .clickable { filter = i }.padding(horizontal = 14.dp, vertical = 6.dp),
                 )
             }
+            item {
+                Text(
+                    androidx.compose.ui.res.stringResource(com.xtalk.app.R.string.n_archived),
+                    fontWeight = if (showArchived) FontWeight.Bold else FontWeight.Normal,
+                    color = if (showArchived) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.clip(RoundedCornerShape(50))
+                        .background(if (showArchived) XSurfaceHigh else XSurface)
+                        .clickable { showArchived = !showArchived }.padding(horizontal = 14.dp, vertical = 6.dp),
+                )
+            }
         }
         when {
             state.loading -> Box(Modifier.fillMaxWidth().padding(32.dp), Alignment.Center) { CircularProgressIndicator() }
@@ -172,13 +188,24 @@ fun ChatListScreen(
                     val o = other(conv)
                     val name = nameOf(conv).ifBlank { "?" }
                     Row(
-                        Modifier.fillMaxWidth().clickable { onOpenChat(conv.id) }.padding(horizontal = 14.dp, vertical = 10.dp),
+                        Modifier.fillMaxWidth().combinedClickable(onClick = { onOpenChat(conv.id) }, onLongClick = { menuFor = conv.id }).padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        XAvatar(name, 54.dp, flag = flagEmoji(o?.profile?.country))
+                        XAvatar(name, 54.dp, flag = flagEmoji(o?.profile?.country), photoUrl = o?.profile?.photoUrl)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(name, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                androidx.compose.material3.DropdownMenu(expanded = menuFor == conv.id, onDismissRequest = { menuFor = null }) {
+                                    androidx.compose.material3.DropdownMenuItem(text = { Text(if (conv.id in state.pinned) androidx.compose.ui.res.stringResource(com.xtalk.app.R.string.n_unpin) else androidx.compose.ui.res.stringResource(com.xtalk.app.R.string.n_pin)) }, onClick = { menuFor = null; viewModel.togglePin(conv.id) })
+                                    androidx.compose.material3.DropdownMenuItem(text = { Text(if (conv.id in state.muted) androidx.compose.ui.res.stringResource(com.xtalk.app.R.string.n_unmute) else androidx.compose.ui.res.stringResource(com.xtalk.app.R.string.n_mute)) }, onClick = { menuFor = null; viewModel.toggleMute(conv.id) })
+                                    androidx.compose.material3.DropdownMenuItem(text = { Text(if (conv.id in state.archived) androidx.compose.ui.res.stringResource(com.xtalk.app.R.string.n_unarchive) else androidx.compose.ui.res.stringResource(com.xtalk.app.R.string.n_archive)) }, onClick = { menuFor = null; viewModel.toggleArchive(conv.id) })
+                                }
+                                if (conv.id in state.pinned) Text("\uD83D\uDCCC ", fontSize = 13.sp)
+                                if (conv.id in state.muted) Text("\uD83D\uDD07 ", fontSize = 13.sp)
+                                Text(name + (flagEmoji(o?.profile?.country)?.let { " $it" } ?: ""), fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                                Spacer(Modifier.width(6.dp))
+                                com.xtalk.app.feature.common.VipTag(o?.id)
+                            }
                             Text(
                                 conv.lastMessage?.body ?: conv.lastMessage?.type?.lowercase()?.let { "[$it]" }
                                     ?: stringResource(R.string.no_messages),

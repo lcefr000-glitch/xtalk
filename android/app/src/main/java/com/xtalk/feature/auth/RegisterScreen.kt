@@ -34,6 +34,7 @@ fun RegisterScreen(
     onBack: () -> Unit,
     onRegistered: () -> Unit,
     onGoLogin: () -> Unit,
+    onLoggedIn: () -> Unit = {},
     viewModel: AuthViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -43,6 +44,7 @@ fun RegisterScreen(
     var dob by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
 
+    LaunchedEffect(state.loggedIn) { if (state.loggedIn) onLoggedIn() }
     LaunchedEffect(state.registeredEmail) { if (state.registeredEmail != null) onRegistered() }
 
     Column(
@@ -83,6 +85,7 @@ fun RegisterScreen(
         ) {
             if (state.loading) CircularProgressIndicator(modifier = Modifier.height(20.dp)) else Text("Sign up")
         }
+        GoogleSignInSection(viewModel, state)
         Spacer(Modifier.height(8.dp))
         TextButton(onClick = onGoLogin, modifier = Modifier.fillMaxWidth()) {
             Text("Already registered? Log in")

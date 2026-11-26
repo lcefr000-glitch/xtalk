@@ -17,24 +17,55 @@ data class MomentsState(
     val loading: Boolean = true,
     val posts: List<FeedPostDto> = emptyList(),
     val publishing: Boolean = false,
+    val myId: String = "",
+    val savedOnly: Boolean = false,
+    val tag: String = "",
+    val note: String? = null,
     val error: String? = null,
 )
 
 @HiltViewModel
 class MomentsViewModel @Inject constructor(
     private val api: MomentsApi,
+    private val tokenStore: com.xtalk.app.core.network.TokenStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(MomentsState())
     val state: StateFlow<MomentsState> = _state.asStateFlow()
 
-    init { refresh() }
+    init {
+        viewModelScope.launch { _state.update { it.copy(myId = tokenStore.currentSession()?.userId.orEmpty()) } }
+        refresh()
+    }
+
+    fun toggleSaved() { _state.update { it.copy(savedOnly = !it.savedOnly) }; refresh() }
+
+    fun setTag(t: String) { _state.update { it.copy(tag = t.trim().removePrefix("#").filter { c -> c.isLetterOrDigit() || c == '_' }.take(40)) }; refresh() }
+
+    fun bookmark(post: FeedPostDto) {
+        viewModelScope.launch {
+            val r = runCatching { api.bookmark(post.id) }.getOrNull()
+            _state.update { it.copy(note = if (r?.isSuccessful == true) "Saved/unsaved" else "Could not save") }
+            if (_state.value.savedOnly) refresh()
+        }
+    }
+
+    fun edit(post: FeedPostDto, body: String) {
+        if (body.isBlank()) return
+        viewModelScope.launch {
+            val r = runCatching { api.editPost(post.id, com.xtalk.app.core.network.EditPostRequest(body.trim())) }.getOrNull()
+            if (r?.isSuccessful != true) _state.update { it.copy(note = "Could not edit") }
+            refresh()
+        }
+    }
+
+    fun clearNote() { _state.update { it.copy(note = null) } }
 
     fun refresh() {
         _state.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
             try {
-                val res = api.feed()
+                val res = api.feed(saved = if (_state.value.savedOnly) "1" else null, tag = _state.value.tag.ifBlank { null })
                 if (res.isSuccessful) {
                     _state.update { it.copy(loading = false, posts = res.body()?.results.orEmpty()) }
                 } else fail("HTTP ${res.code()}")

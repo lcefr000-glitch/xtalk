@@ -96,6 +96,7 @@ data class UpdateProfileRequest(
     val showLastActive: Boolean? = null,
     val profileIsPublic: Boolean? = null,
     val interfaceLanguage: String? = null,
+    val photoUrl: String? = null,
 )
 
 @Serializable
@@ -107,6 +108,7 @@ data class MeResponse(
     val isMinor: Boolean,
     val profile: ProfileDto? = null,
     @SerialName("userLanguages") val userLanguages: List<UserLanguageDto> = emptyList(),
+    val settings: SettingsDto? = null,
 )
 
 @Serializable
@@ -127,6 +129,7 @@ data class PartnerUserDto(
     val username: String,
     val lastActiveAt: String? = null,
     val isOnline: Boolean? = null,
+    val matchScore: Int = 0,
     val profile: ProfileDto? = null,
     @SerialName("languages") val languages: List<UserLanguageDto> = emptyList(),
 )
@@ -264,6 +267,9 @@ data class VoiceRoomDetailDto(
     val isLive: Boolean = true,
     val hostId: String? = null,
     val participants: List<VoiceParticipantDto> = emptyList(),
+    val moderatorIds: List<String> = emptyList(),
+    val theme: String = "default",
+    val stageRequests: List<String> = emptyList(),
 )
 
 @Serializable
@@ -281,3 +287,210 @@ data class RoomRoleRequest(val userId: String, val role: String)
 
 @Serializable
 data class RoomUserRequest(val userId: String)
+
+
+@Serializable
+data class GoogleLoginRequest(
+    val idToken: String,
+    val dateOfBirth: String? = null,
+    val username: String? = null,
+)
+
+@Serializable
+data class GoogleLoginResponse(
+    val needsProfile: Boolean = false,
+    val email: String? = null,
+    val name: String? = null,
+    val suggestedUsername: String? = null,
+    val user: UserDto? = null,
+    val accessToken: String? = null,
+    val accessTokenExpiresIn: Int? = null,
+    val refreshToken: String? = null,
+    val refreshTokenExpiresAt: String? = null,
+)
+
+
+@Serializable
+data class PublicLanguageDto(val code: String = "", val name: String? = null, val type: String? = null, val proficiency: String? = null)
+
+@Serializable
+data class PublicProfileDto(
+    val id: String,
+    val username: String,
+    val displayName: String = "",
+    val bio: String? = null,
+    val photoUrl: String? = null,
+    val country: String? = null,
+    val interests: List<String> = emptyList(),
+    val createdAt: String? = null,
+    val lastActiveAt: String? = null,
+    val languages: List<PublicLanguageDto> = emptyList(),
+    val followers: Int = 0,
+    val following: Int = 0,
+    val isFollowing: Boolean = false,
+    val isSelf: Boolean = false,
+)
+
+@Serializable
+data class UpdateSettingsRequest(
+    val notifyMessages: Boolean? = null,
+    val notifyFollowers: Boolean? = null,
+    val notifyLikes: Boolean? = null,
+    val notifyComments: Boolean? = null,
+    val notifyRoomInvitations: Boolean? = null,
+    val notifyCalls: Boolean? = null,
+)
+
+@Serializable
+data class SettingsDto(
+    val notifyMessages: Boolean = true,
+    val notifyFollowers: Boolean = true,
+    val notifyLikes: Boolean = true,
+    val notifyComments: Boolean = true,
+    val notifyRoomInvitations: Boolean = true,
+    val notifyCalls: Boolean = true,
+)
+
+
+@Serializable
+data class WalletDto(
+    val coins: Int = 0, val totalSpent: Int = 0, val level: Int = 1,
+    val nextLevelAt: Int = 50, val levelStartsAt: Int = 0,
+)
+
+@Serializable
+data class GiftDto(val id: String, val name: String, val emoji: String, val price: Int)
+
+@Serializable
+data class SendGiftRequest(val roomId: String, val receiverId: String, val giftId: String)
+
+@Serializable
+data class SendGiftResponse(val id: String, val gift: GiftDto, val wallet: WalletDto)
+
+@Serializable
+data class RoomGiftDto(
+    val id: String, val senderId: String, val receiverId: String, val giftId: String,
+    val coins: Int = 0, val createdAt: String, val senderLevel: Int = 1,
+)
+
+@Serializable
+data class DevActivateRequest(val tier: String)
+
+@Serializable
+data class RoomThemeRequest(val theme: String)
+
+@Serializable
+data class VipLookupRequest(val ids: List<String>)
+
+@Serializable
+data class VipLookupResponse(val vipIds: List<String> = emptyList())
+
+@Serializable
+data class LevelsResponse(val levels: Map<String, Int> = emptyMap())
+
+@Serializable
+data class ExtrasDto(
+    val hometown: String = "", val occupation: String = "", val school: String = "",
+    val gender: String = "", val mbti: String = "", val bloodType: String = "", val tagline: String = "",
+)
+
+@Serializable
+data class HonorGiftDto(val giftId: String, val count: Int = 0, val coins: Int = 0)
+
+@Serializable
+data class HonorDto(
+    val level: Int = 1, val giftsReceived: List<HonorGiftDto> = emptyList(),
+    val totalGifts: Int = 0, val totalCoinsReceived: Int = 0,
+)
+
+@Serializable
+data class UpdateUsernameRequest(val username: String)
+
+@Serializable
+data class UsernameCheckResponse(val username: String = "", val available: Boolean = false, val reason: String? = null)
+
+@Serializable
+data class BlockedUserDto(val id: String, val username: String, val profile: ProfileDto? = null)
+
+@Serializable
+data class BlockedResponse(val results: List<BlockedUserDto> = emptyList())
+
+@Serializable
+data class ReportRequest(val targetType: String, val targetId: String, val reason: String, val details: String? = null)
+
+@Serializable
+data class ReactionDto(val emoji: String, val count: Int = 0, val mine: Boolean = false)
+
+@Serializable
+data class ReactionsResponse(val byMessage: Map<String, List<ReactionDto>> = emptyMap())
+
+@Serializable
+data class ReactRequest(val emoji: String)
+
+@Serializable
+data class PinsResponse(val ids: List<String> = emptyList())
+
+@Serializable
+data class WishlistDto(val giftIds: List<String> = emptyList())
+
+@Serializable
+data class VocabItemDto(
+    val id: String,
+    @SerialName("collection_id") val collectionId: String? = null,
+    val kind: String = "WORD",
+    @SerialName("term") val text: String,
+    val translation: String? = null, val definition: String? = null, val example: String? = null,
+    val pronunciation: String? = null,
+    @SerialName("language_code") val language: String? = null,
+    @SerialName("interval_days") val intervalDays: Int = 0,
+    val repetitions: Int = 0,
+    @SerialName("due_at") val dueAt: String? = null,
+)
+
+@Serializable
+data class VocabListResponse(val items: List<VocabItemDto> = emptyList(), val total: Int = 0)
+
+@Serializable
+data class VocabItemRequest(
+    val term: String, val languageCode: String = "en", val translation: String? = null, val example: String? = null,
+    val kind: String? = null, val collectionId: String? = null,
+)
+
+@Serializable
+data class VocabCollectionDto(val id: String, val name: String, @SerialName("item_count") val count: Int = 0)
+
+@Serializable
+data class VocabCollectionRequest(val name: String, val languageCode: String = "en")
+
+@Serializable
+data class VocabGradeRequest(val quality: Int)
+
+@Serializable
+data class VocabLangStat(val languageCode: String = "", val total: Int = 0, val mastered: Int = 0, val due: Int = 0)
+
+@Serializable
+data class VocabStatsDto(val total: Int = 0, val due: Int = 0, val learned: Int = 0)
+
+@Serializable
+data class ChatFlagDto(val conversationId: String, val muted: Boolean = false, val archived: Boolean = false)
+
+@Serializable
+data class ChatFlagsResponse(val flags: List<ChatFlagDto> = emptyList())
+
+@Serializable
+data class ChatFlagRequest(val value: Boolean)
+
+@Serializable
+data class ChatHitDto(val id: String, val conversationId: String, val body: String? = null, val createdAt: String? = null, val senderId: String? = null)
+
+@Serializable
+data class ChatSearchResponse(val messages: List<ChatHitDto> = emptyList())
+
+@Serializable
+data class SessionDto(val id: String, val createdAt: String = "", val device: String = "", val ip: String? = null, val active: Boolean = false)
+
+@Serializable
+data class SessionsResponse(val sessions: List<SessionDto> = emptyList())
+
+@Serializable
+data class EditPostRequest(val body: String)

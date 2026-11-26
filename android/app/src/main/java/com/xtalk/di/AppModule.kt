@@ -8,10 +8,15 @@ import com.xtalk.app.core.db.AppDatabase
 import com.xtalk.app.core.network.AuthApi
 import com.xtalk.app.core.network.AuthInterceptor
 import com.xtalk.app.core.network.ChatApi
+import com.xtalk.app.core.network.SessionsApi
+import com.xtalk.app.core.network.FriendsApi
+import com.xtalk.app.core.network.ProgressApi
+import com.xtalk.app.core.network.CoursesApi
 import com.xtalk.app.core.network.DiscoveryApi
 import com.xtalk.app.core.network.MomentsApi
 import com.xtalk.app.core.network.NotificationsApi
 import com.xtalk.app.core.network.SubscriptionsApi
+import com.xtalk.app.core.network.EconomyApi
 import com.xtalk.app.core.network.TokenAuthenticator
 import com.xtalk.app.core.network.ToolsApi
 import com.xtalk.app.core.network.UserApi
@@ -46,6 +51,7 @@ object AppModule {
         val client = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
+            .addInterceptor(com.xtalk.app.core.network.StatusInterceptor())
             .apply {
                 if (BuildConfig.DEBUG) {
                     addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
@@ -71,6 +77,7 @@ object AppModule {
         val client = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
+            .addInterceptor(com.xtalk.app.core.network.StatusInterceptor())
             .addInterceptor(authInterceptor)
             .authenticator(tokenAuthenticator)
             .apply {
@@ -103,6 +110,18 @@ object AppModule {
     fun chatApi(holder: RetrofitHolder): ChatApi = holder.authed.create(ChatApi::class.java)
 
     @Provides
+    fun friendsApi(holder: RetrofitHolder): FriendsApi = holder.authed.create(FriendsApi::class.java)
+
+    @Provides
+    fun progressApi(holder: RetrofitHolder): ProgressApi = holder.authed.create(ProgressApi::class.java)
+
+    @Provides
+    fun coursesApi(holder: RetrofitHolder): CoursesApi = holder.authed.create(CoursesApi::class.java)
+
+    @Provides
+    fun sessionsApi(holder: RetrofitHolder): SessionsApi = holder.authed.create(SessionsApi::class.java)
+
+    @Provides
     fun momentsApi(holder: RetrofitHolder): MomentsApi = holder.authed.create(MomentsApi::class.java)
 
     @Provides
@@ -118,6 +137,15 @@ object AppModule {
 
     @Provides
     fun subscriptionsApi(holder: RetrofitHolder): SubscriptionsApi = holder.authed.create(SubscriptionsApi::class.java)
+
+    @Provides
+    fun economyApi(holder: RetrofitHolder): EconomyApi = holder.authed.create(EconomyApi::class.java)
+
+    @Provides
+    fun extrasApi(holder: RetrofitHolder): com.xtalk.app.core.network.ExtrasApi = holder.authed.create(com.xtalk.app.core.network.ExtrasApi::class.java)
+
+    @Provides
+    fun vocabApi(holder: RetrofitHolder): com.xtalk.app.core.network.VocabApi = holder.authed.create(com.xtalk.app.core.network.VocabApi::class.java)
 
     @Provides
     fun toolsApi(holder: RetrofitHolder): ToolsApi = holder.authed.create(ToolsApi::class.java)

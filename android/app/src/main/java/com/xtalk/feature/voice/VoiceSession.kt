@@ -1,7 +1,10 @@
 package com.xtalk.app.feature.voice
 
 import android.content.Context
+import com.twilio.audioswitch.AudioDevice
 import io.livekit.android.LiveKit
+import io.livekit.android.LiveKitOverrides
+import io.livekit.android.audio.AudioSwitchHandler
 import io.livekit.android.events.RoomEvent
 import io.livekit.android.room.Room
 import kotlinx.coroutines.CoroutineScope
@@ -35,10 +38,20 @@ class VoiceSession(private val appContext: Context) {
 
     fun connect(url: String, token: String, canPublish: Boolean, startMic: Boolean) {
         disconnect()
+        VoiceService.start(appContext, false)
         _link.value = LinkState.CONNECTING
         _error.value = null
         _canPublish.value = canPublish
-        val r = LiveKit.create(appContext)
+        val handler = AudioSwitchHandler(appContext).apply {
+            // Loudspeaker first (the default prefers the earpiece); headsets still win when plugged in.
+            preferredDeviceList = listOf(
+                AudioDevice.BluetoothHeadset::class.java,
+                AudioDevice.WiredHeadset::class.java,
+                AudioDevice.Speakerphone::class.java,
+                AudioDevice.Earpiece::class.java,
+            )
+        }
+        val r = LiveKit.create(appContext, overrides = LiveKitOverrides(audioOptions = io.livekit.android.AudioOptions(audioHandler = handler)))
         room = r
         events = scope.launch {
             launch {
@@ -47,7 +60,8 @@ class VoiceSession(private val appContext: Context) {
                         is RoomEvent.ActiveSpeakersChanged ->
                             _speaking.value = ev.speakers.mapNotNull { it.identity?.value }.toSet()
                         is RoomEvent.Disconnected -> {
-                            _link.value = LinkState.IDLE; _micOn.value = false
+                            if (_link.value != LinkState.IDLE) _error.value = "Audio disconnected" + (ev.reason?.let { ": $it" } ?: "")
+                            _link.value = LinkState.FAILED; _micOn.value = false
                         }
                         is RoomEvent.ParticipantPermissionsChanged ->
                             if (ev.participant == r.localParticipant) {
@@ -77,6 +91,7 @@ class VoiceSession(private val appContext: Context) {
             try {
                 r.localParticipant.setMicrophoneEnabled(on)
                 _micOn.value = on
+                if (on) VoiceService.start(appContext, true)
             } catch (e: Exception) {
                 _error.value = e.message ?: "Microphone error"
                 _micOn.value = false
@@ -85,6 +100,7 @@ class VoiceSession(private val appContext: Context) {
     }
 
     fun disconnect() {
+        VoiceService.stop(appContext)
         events?.cancel(); events = null
         room?.let { runCatching { it.disconnect(); it.release() } }
         room = null

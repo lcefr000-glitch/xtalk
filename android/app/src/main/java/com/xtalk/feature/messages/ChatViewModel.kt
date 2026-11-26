@@ -27,6 +27,9 @@ data class ChatState(
     val peerTyping: Boolean = false,
     val error: String? = null,
     val translations: Map<String, String> = emptyMap(), // messageId -> translated text
+    val replyTo: MessageDto? = null,
+    val editing: MessageDto? = null,
+    val reactions: Map<String, List<com.xtalk.app.core.network.ReactionDto>> = emptyMap(),
 )
 
 @HiltViewModel
@@ -52,6 +55,23 @@ class ChatViewModel @Inject constructor(
         socket.join(conversationId)
         load()
         viewModelScope.launch {
+            // Edits and deletes by the other person do not come over the socket: refresh quietly.
+            while (true) {
+                delay(5000)
+                try {
+                    val res = api.messages(conversationId)
+                    loadReactions()
+                    val fresh = res.body()?.results
+                    if (res.isSuccessful && fresh != null) {
+                        _state.update { s ->
+                            val keepNewer = s.messages.filter { m -> fresh.none { it.id == m.id } && m.createdAt > (fresh.minOfOrNull { it.createdAt } ?: "") && s.sending }
+                            if (fresh == s.messages) s else s.copy(messages = (fresh + keepNewer).sortedBy { it.createdAt })
+                        }
+                    }
+                } catch (_: Exception) { }
+            }
+        }
+        viewModelScope.launch {
             socket.incoming.collect { msg ->
                 if (msg.conversationId == conversationId || msg.conversationId == null) {
                     _state.update { s ->
@@ -76,7 +96,26 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun loadReactions() {
+        viewModelScope.launch {
+            val r = runCatching { api.reactions(conversationId) }.getOrNull()?.takeIf { it.isSuccessful }?.body()
+            if (r != null) _state.update { it.copy(reactions = r.byMessage) }
+        }
+    }
+
+    fun star(messageId: String) {
+        viewModelScope.launch { runCatching { api.star(messageId) } }
+    }
+
+    fun react(messageId: String, emoji: String) {
+        viewModelScope.launch {
+            runCatching { api.react(messageId, com.xtalk.app.core.network.ReactRequest(emoji)) }
+            loadReactions()
+        }
+    }
+
     fun load() {
+        loadReactions()
         viewModelScope.launch {
             try {
                 val res = api.messages(conversationId)
@@ -96,10 +135,13 @@ class ChatViewModel @Inject constructor(
     fun send(text: String) {
         val body = text.trim()
         if (body.isEmpty()) return
-        _state.update { it.copy(sending = true) }
+        val editing = _state.value.editing
+        if (editing != null) { saveEdit(editing, body); return }
+        val replyId = _state.value.replyTo?.id
+        _state.update { it.copy(sending = true, replyTo = null) }
         viewModelScope.launch {
             try {
-                val res = api.send(conversationId, SendMessageRequest(type = "TEXT", body = body))
+                val res = api.send(conversationId, SendMessageRequest(type = "TEXT", body = body, replyToId = replyId))
                 if (res.isSuccessful && res.body() != null) {
                     val msg = res.body()!!
                     _state.update { s ->
@@ -123,7 +165,7 @@ class ChatViewModel @Inject constructor(
             try {
                 val res = toolsApi.translate(mapOf("text" to text, "target" to target))
                 if (res.isSuccessful) {
-                    val translated = res.body()?.get("translatedText") as? String
+                    val translated = (res.body()?.get("translatedText") as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
                     if (translated != null) {
                         _state.update { it.copy(translations = it.translations + (messageId to translated)) }
                     }
@@ -133,6 +175,33 @@ class ChatViewModel @Inject constructor(
             } catch (e: Exception) {
                 _state.update { it.copy(error = "Translation error: ${e.message}") }
             }
+        }
+    }
+
+    fun startReply(m: MessageDto) = _state.update { it.copy(replyTo = m, editing = null) }
+    fun startEdit(m: MessageDto) = _state.update { it.copy(editing = m, replyTo = null) }
+    fun cancelCompose() = _state.update { it.copy(editing = null, replyTo = null) }
+
+    private fun saveEdit(m: MessageDto, body: String) {
+        _state.update { it.copy(editing = null) }
+        viewModelScope.launch {
+            try {
+                val res = api.editMessage(m.id, mapOf("body" to body))
+                val upd = res.body()
+                if (res.isSuccessful && upd != null) {
+                    _state.update { s -> s.copy(messages = s.messages.map { if (it.id == m.id) it.copy(body = upd.body, editedAt = upd.editedAt) else it }) }
+                } else _state.update { it.copy(error = "Edit failed (${res.code()})") }
+            } catch (e: Exception) { _state.update { it.copy(error = "Network error: ${e.message}") } }
+        }
+    }
+
+    fun delete(m: MessageDto) {
+        viewModelScope.launch {
+            try {
+                val res = api.deleteMessage(m.id)
+                if (res.isSuccessful) _state.update { s -> s.copy(messages = s.messages.filter { it.id != m.id }) }
+                else _state.update { it.copy(error = "Delete failed (${res.code()})") }
+            } catch (e: Exception) { _state.update { it.copy(error = "Network error: ${e.message}") } }
         }
     }
 

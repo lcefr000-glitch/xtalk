@@ -19,6 +19,9 @@ data class ChatListState(
     val conversations: List<ConversationSummaryDto> = emptyList(),
     val myUserId: String = "",
     val error: String? = null,
+    val pinned: Set<String> = emptySet(),
+    val muted: Set<String> = emptySet(),
+    val archived: Set<String> = emptySet(),
 )
 
 @HiltViewModel
@@ -42,8 +45,38 @@ class ChatListViewModel @Inject constructor(
         }
     }
 
+    private suspend fun loadFlags() {
+        val f = runCatching { api.flags() }.getOrNull()?.takeIf { it.isSuccessful }?.body()?.flags ?: return
+        _state.update { it.copy(muted = f.filter { x -> x.muted }.map { x -> x.conversationId }.toSet(), archived = f.filter { x -> x.archived }.map { x -> x.conversationId }.toSet()) }
+    }
+
+    fun toggleMute(id: String) {
+        viewModelScope.launch {
+            runCatching { api.mute(id, com.xtalk.app.core.network.ChatFlagRequest(id !in _state.value.muted)) }
+            loadFlags()
+        }
+    }
+
+    fun toggleArchive(id: String) {
+        viewModelScope.launch {
+            runCatching { api.archive(id, com.xtalk.app.core.network.ChatFlagRequest(id !in _state.value.archived)) }
+            loadFlags()
+        }
+    }
+
+    fun togglePin(id: String) {
+        viewModelScope.launch {
+            runCatching { api.togglePin(id) }
+            val p = runCatching { api.pins() }.getOrNull()?.takeIf { it.isSuccessful }?.body()?.ids
+            if (p != null) _state.update { it.copy(pinned = p.toSet()) }
+        }
+    }
+
     fun refresh() {
         viewModelScope.launch {
+            val p = runCatching { api.pins() }.getOrNull()?.takeIf { it.isSuccessful }?.body()?.ids
+            if (p != null) _state.update { it.copy(pinned = p.toSet()) }
+            loadFlags()
             try {
                 val res = api.conversations()
                 if (res.isSuccessful) {
