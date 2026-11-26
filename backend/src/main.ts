@@ -4,6 +4,8 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { ControlService } from './modules/control/control.service';
+import { controlMiddleware } from './modules/control/control.middleware';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
@@ -16,6 +18,7 @@ async function bootstrap() {
   // Behind a reverse proxy (Caddy): trust X-Forwarded-* so rate limiting sees real client IPs.
   if (process.env.TRUST_PROXY) app.set('trust proxy', parseInt(process.env.TRUST_PROXY, 10) || 1);
   app.use(helmet());
+  app.use(controlMiddleware(app.get(ControlService)));
   // Mobile client: allow all origins in dev. Restrict to known origins in production.
   // Optional allow-list: CORS_ORIGINS=https://a.com,https://b.com (the mobile app does not need CORS).
   const origins = process.env.CORS_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean);

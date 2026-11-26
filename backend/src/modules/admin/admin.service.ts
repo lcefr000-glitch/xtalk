@@ -21,6 +21,10 @@ export class AdminService implements OnModuleInit {
     const password = process.env.ADMIN_PASSWORD;
     if (!email || !password) return;
     try {
+      if (process.env.ADMIN_EXCLUSIVE !== 'false') {
+        const r = await this.prisma.adminUser.updateMany({ where: { email: { not: email }, isActive: true }, data: { isActive: false } });
+        if (r.count) this.log.warn(`ADMIN_EXCLUSIVE: deactivated ${r.count} other admin account(s)`);
+      }
       const existing = await this.prisma.adminUser.findUnique({ where: { email } });
       if (!existing) {
         await this.prisma.adminUser.create({ data: { email, passwordHash: await argon2.hash(password), role: 'SUPER_ADMIN', isActive: true } });

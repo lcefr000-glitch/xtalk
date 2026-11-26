@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { AppConfig } from '../../config/configuration';
+import { AdminControlController } from './admin-control.controller';
 import { AdminController } from './admin.controller';
 import { AdminStoreController } from './admin-store.controller';
 import { StoreModule } from '../store/store.module';
@@ -18,7 +19,7 @@ import { AdminService } from './admin.service';
       }),
     }),
   ],
-  controllers: [AdminController, AdminStoreController],
+  controllers: [AdminController, AdminControlController, AdminStoreController],
   providers: [AdminService, AdminGuard],
 })
 export class AdminModule {}
