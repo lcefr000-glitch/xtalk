@@ -16,8 +16,8 @@ export class VoiceController {
   }
 
   @Get('voice-rooms')
-  list(@Query('live') live?: string) {
-    return this.voice.listRooms(live !== 'false');
+  list(@CurrentUser() user: AuthUser, @Query('live') live?: string) {
+    return this.voice.listRooms(live !== 'false', user.id);
   }
 
   @Get('voice-rooms/:id')

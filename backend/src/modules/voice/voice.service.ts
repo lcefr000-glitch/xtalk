@@ -54,6 +54,14 @@ export class VoiceService implements OnModuleInit {
     return { success: true, theme };
   }
 
+  /** Room level grows with the coins gifted inside the room (same curve as user levels). */
+  private async roomLevelOf(roomId: string): Promise<number> {
+    try {
+      const rows = await this.prisma.$queryRaw<{ s: number }[]>`SELECT COALESCE(SUM(coins),0)::int AS s FROM gift_transactions WHERE room_id = ${roomId}`;
+      return Math.floor(Math.sqrt(Math.max(0, rows[0]?.s ?? 0) / 50)) + 1;
+    } catch { return 1; }
+  }
+
   private async themeOf(roomId: string): Promise<string> {
     if (!this.themesReady) return 'default';
     try {
@@ -72,7 +80,44 @@ export class VoiceService implements OnModuleInit {
     private readonly livekit: LiveKitService,
   ) {}
 
+  private metaReady = false;
+  private async ensureMeta() {
+    if (this.metaReady) return;
+    try {
+      await this.prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS voice_room_meta (room_id TEXT PRIMARY KEY, mode TEXT NOT NULL DEFAULT 'chat', topic TEXT, is_private BOOLEAN NOT NULL DEFAULT false)`);
+      this.metaReady = true;
+    } catch { /* retry next call */ }
+  }
+  private async metaMap(ids: string[]): Promise<Map<string, { mode: string; topic: string | null; isPrivate: boolean }>> {
+    const m = new Map<string, { mode: string; topic: string | null; isPrivate: boolean }>();
+    await this.ensureMeta();
+    if (!this.metaReady || ids.length === 0) return m;
+    try {
+      const rows = await this.prisma.$queryRawUnsafe<{ room_id: string; mode: string; topic: string | null; is_private: boolean }[]>(
+        `SELECT room_id, mode, topic, is_private FROM voice_room_meta WHERE room_id = ANY($1::text[])`, ids);
+      for (const r of rows) m.set(r.room_id, { mode: r.mode, topic: r.topic, isPrivate: r.is_private });
+    } catch { /* ignore */ }
+    return m;
+  }
+  private async canSeePrivate(viewerId: string, hostId: string): Promise<boolean> {
+    if (viewerId === hostId) return true;
+    const f = await this.prisma.follow.findFirst({ where: { followerId: viewerId, followingId: hostId }, select: { id: true } });
+    return !!f;
+  }
+
   async createRoom(hostId: string, dto: CreateRoomDto) {
+    const created = await this.createRoomRow(hostId, dto);
+    await this.ensureMeta();
+    if (this.metaReady) {
+      try {
+        await this.prisma.$executeRawUnsafe(`INSERT INTO voice_room_meta (room_id, mode, topic, is_private) VALUES ($1, $2, $3, $4)`,
+          created.id, dto.mode ?? 'chat', dto.topic?.trim() || null, !!dto.isPrivate);
+      } catch { /* meta is optional */ }
+    }
+    return created;
+  }
+
+  private async createRoomRow(hostId: string, dto: CreateRoomDto) {
     return this.prisma.voiceRoom.create({
       data: {
         hostId,
@@ -85,7 +130,7 @@ export class VoiceService implements OnModuleInit {
     });
   }
 
-  async listRooms(liveOnly = true) {
+  async listRooms(liveOnly = true, viewerId?: string) {
     const rooms = await this.prisma.voiceRoom.findMany({
       where: liveOnly ? { isLive: true } : {},
       include: {
@@ -96,7 +141,14 @@ export class VoiceService implements OnModuleInit {
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
-    return rooms.map((r) => ({ ...r, description: splitDescription(r.description).description }));
+    const meta = await this.metaMap(rooms.map((r) => r.id));
+    const out: any[] = [];
+    for (const r of rooms) {
+      const mt = meta.get(r.id);
+      if (mt?.isPrivate && !(viewerId && (await this.canSeePrivate(viewerId, r.hostId)))) continue;
+      out.push({ ...r, description: splitDescription(r.description).description, mode: mt?.mode ?? 'chat', topic: mt?.topic ?? null, isPrivate: mt?.isPrivate ?? false });
+    }
+    return out;
   }
 
   async getRoom(id: string) {
@@ -115,11 +167,14 @@ export class VoiceService implements OnModuleInit {
     });
     if (!room) throw new NotFoundException('Room not found');
     const { description, mods } = splitDescription(room.description);
+    const mt = (await this.metaMap([id])).get(id);
     return {
       ...room,
+      mode: mt?.mode ?? 'chat', topic: mt?.topic ?? null, isPrivate: mt?.isPrivate ?? false,
       description,
       moderatorIds: mods,
       theme: await this.themeOf(id),
+      roomLevel: await this.roomLevelOf(id),
       stageRequests: [...(this.stageRequests.get(id) ?? [])],
       stageInvites: [...(this.stageInvites.get(id) ?? [])],
     };
@@ -130,6 +185,9 @@ export class VoiceService implements OnModuleInit {
     if (!room.isLive) throw new ForbiddenException('Room is closed');
     if (await this.safety.isBlockedEitherWay(userId, room.hostId)) {
       throw new ForbiddenException('Cannot join this room');
+    }
+    if ((room as any).isPrivate && !(await this.canSeePrivate(userId, room.hostId))) {
+      throw new ForbiddenException('This room is private');
     }
     const existing = await this.prisma.voiceRoomParticipant.findUnique({
       where: { roomId_userId: { roomId, userId } },

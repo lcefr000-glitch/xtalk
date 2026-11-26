@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
 
 export class CreateRoomDto {
   @IsString()
@@ -13,6 +13,19 @@ export class CreateRoomDto {
   @IsOptional()
   @Matches(/^[a-z]{2}$/)
   languageCode?: string;
+
+  @IsOptional()
+  @IsIn(['chat', 'music'])
+  mode?: 'chat' | 'music';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  topic?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isPrivate?: boolean;
 }
 
 export class RoomRoleDto {
