@@ -35,6 +35,36 @@ export class VoiceController {
     return this.voice.getToken(user.id, id);
   }
 
+  @Post('voice-rooms/:id/stage/request')
+  requestStage(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.voice.requestStage(user.id, id);
+  }
+
+  @Post('voice-rooms/:id/stage/cancel')
+  cancelStage(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.voice.cancelStageRequest(user.id, id);
+  }
+
+  @Post('voice-rooms/:id/stage/reject')
+  rejectStage(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RoomUserDto) {
+    return this.voice.rejectStage(user.id, id, dto.userId);
+  }
+
+  @Post('voice-rooms/:id/moderators/add')
+  addMod(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RoomUserDto) {
+    return this.voice.setModerator(user.id, id, dto.userId, true);
+  }
+
+  @Post('voice-rooms/:id/moderators/remove')
+  removeMod(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RoomUserDto) {
+    return this.voice.setModerator(user.id, id, dto.userId, false);
+  }
+
+  @Post('voice-rooms/:id/seat/leave')
+  leaveSeat(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.voice.leaveSeat(user.id, id);
+  }
+
   @Post('voice-rooms/:id/leave')
   leave(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.voice.leaveRoom(user.id, id);

@@ -1,6 +1,18 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { IsBoolean, IsOptional } from 'class-validator';
 import { UpdateUserDto } from './dto/update-user.dto';
+
+export class UpdateSettingsDto {
+  @IsOptional() @IsBoolean() notifyMessages?: boolean;
+  @IsOptional() @IsBoolean() notifyFollowers?: boolean;
+  @IsOptional() @IsBoolean() notifyLikes?: boolean;
+  @IsOptional() @IsBoolean() notifyComments?: boolean;
+  @IsOptional() @IsBoolean() notifyRoomInvitations?: boolean;
+  @IsOptional() @IsBoolean() notifyCalls?: boolean;
+  @IsOptional() @IsBoolean() notifyAccount?: boolean;
+  @IsOptional() @IsBoolean() darkMode?: boolean;
+}
 
 @Injectable()
 export class UsersService {
@@ -56,5 +68,15 @@ export class UsersService {
     if (!valid) return { username: normalized, available: false, reason: 'invalid_format' };
     const existing = await this.prisma.user.findUnique({ where: { username: normalized } });
     return { username: normalized, available: !existing };
+  }
+
+  async updateSettings(userId: string, dto: UpdateSettingsDto) {
+    const data: Record<string, boolean> = {};
+    for (const [k, v] of Object.entries(dto)) if (typeof v === 'boolean') data[k] = v;
+    return this.prisma.userSettings.upsert({
+      where: { userId },
+      update: data,
+      create: { userId, ...data },
+    });
   }
 }

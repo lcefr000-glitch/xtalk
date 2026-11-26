@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Patch, Query } from '@nestjs/c
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { UsersService } from './users.service';
+import { UpdateSettingsDto, UsersService } from './users.service';
 
 @ApiTags('users')
 @ApiBearerAuth()
@@ -18,6 +18,11 @@ export class UsersController {
   @Patch('me')
   updateMe(@CurrentUser() user: AuthUser, @Body() dto: UpdateUserDto) {
     return this.users.updateMe(user.id, dto);
+  }
+
+  @Patch('me/settings')
+  updateSettings(@CurrentUser() user: AuthUser, @Body() dto: UpdateSettingsDto) {
+    return this.users.updateSettings(user.id, dto);
   }
 
   @HttpCode(200)

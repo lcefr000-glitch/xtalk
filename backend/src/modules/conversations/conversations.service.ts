@@ -57,7 +57,7 @@ export class ConversationsService {
                 user: {
                   select: {
                     id: true, username: true,
-                    profile: { select: { displayName: true, photoUrl: true } },
+                    profile: { select: { displayName: true, photoUrl: true, country: true } },
                   },
                 },
               },

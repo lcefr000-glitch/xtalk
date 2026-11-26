@@ -55,3 +55,49 @@ describe('VoiceService.getToken / LiveKit', () => {
     await expect(mk(room('HOST')).getToken('u1', 'r1')).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 });
+
+describe('stage requests + moderators', () => {
+  const mkRoom = (desc: string | null = null) => ({
+    id: 'r1', hostId: 'h', isLive: true, description: desc,
+    participants: [
+      { id: 'p0', userId: 'h', role: 'HOST', isMuted: false, user: { username: 'h', profile: null } },
+      { id: 'p1', userId: 'l1', role: 'LISTENER', isMuted: false, user: { username: 'l1', profile: null } },
+      { id: 'p2', userId: 'm1', role: 'LISTENER', isMuted: false, user: { username: 'm1', profile: null } },
+    ],
+  });
+  const mk = (r: any) => {
+    const prisma: any = {
+      voiceRoom: { findUnique: jest.fn().mockResolvedValue(r), update: jest.fn() },
+      voiceRoomParticipant: { updateMany: jest.fn() },
+    };
+    const lk: any = { setCanPublish: jest.fn(), mute: jest.fn(), kick: jest.fn() };
+    return { svc: new VoiceService(prisma, {} as any, lk), prisma, lk };
+  };
+
+  it('listener request shows in room, host accepts, queue clears', async () => {
+    const { svc, lk } = mk(mkRoom());
+    await svc.requestStage('l1', 'r1');
+    expect((await svc.getRoom('r1')).stageRequests).toEqual(['l1']);
+    await svc.setRole('h', 'r1', 'l1', 'SPEAKER');
+    expect((await svc.getRoom('r1')).stageRequests).toEqual([]);
+    expect(lk.setCanPublish).toHaveBeenCalledWith('r1', 'l1', true);
+  });
+  it('listener cannot seat himself or others', async () => {
+    const { svc } = mk(mkRoom());
+    await expect(svc.setRole('l1', 'r1', 'l1', 'SPEAKER')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+  it('moderator from description can accept but not remove host', async () => {
+    const { svc } = mk(mkRoom('Hello\n\u200b#mods:m1'));
+    const r = await svc.getRoom('r1');
+    expect(r.moderatorIds).toEqual(['m1']);
+    expect(r.description).toBe('Hello');
+    await svc.setRole('m1', 'r1', 'l1', 'SPEAKER');
+    await expect(svc.removeParticipant('m1', 'r1', 'h')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+  it('only host adds moderators and tag is stored', async () => {
+    const { svc, prisma } = mk(mkRoom('Hello'));
+    await expect(svc.setModerator('l1', 'r1', 'm1', true)).rejects.toBeInstanceOf(ForbiddenException);
+    await svc.setModerator('h', 'r1', 'm1', true);
+    expect(prisma.voiceRoom.update.mock.calls[0][0].data.description).toBe('Hello\n\u200b#mods:m1');
+  });
+});

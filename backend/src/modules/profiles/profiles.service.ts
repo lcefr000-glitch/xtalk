@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 
@@ -39,5 +39,46 @@ export class ProfilesService {
       ...(dto.profileIsPublic !== undefined ? { profileIsPublic: dto.profileIsPublic } : {}),
     };
     return this.prisma.profile.update({ where: { userId }, data });
+  }
+
+  /** Another user's public profile (respects block + private profiles). */
+  async getProfileById(viewerId: string, id: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true, username: true, createdAt: true, lastActiveAt: true, deletedAt: true,
+        profile: true,
+        userLanguages: { include: { language: true } },
+      },
+    });
+    if (!user || user.deletedAt || !user.profile) throw new NotFoundException('User not found');
+    const blocked = await this.prisma.block.findFirst({
+      where: { OR: [{ blockerId: viewerId, blockedId: id }, { blockerId: id, blockedId: viewerId }] },
+    });
+    if (blocked) throw new ForbiddenException('Profile unavailable');
+    const isSelf = viewerId === id;
+    if (!user.profile.profileIsPublic && !isSelf) throw new ForbiddenException('This profile is private');
+    const [followers, following, isFollowing] = await Promise.all([
+      this.prisma.follow.count({ where: { followingId: id } }),
+      this.prisma.follow.count({ where: { followerId: id } }),
+      this.prisma.follow.findFirst({ where: { followerId: viewerId, followingId: id } }),
+    ]);
+    const p = user.profile;
+    return {
+      id: user.id,
+      username: user.username,
+      displayName: p.displayName,
+      bio: p.bio,
+      photoUrl: p.photoUrl,
+      country: p.country,
+      interests: p.interests,
+      createdAt: user.createdAt,
+      lastActiveAt: p.showLastActive || isSelf ? user.lastActiveAt : null,
+      languages: user.userLanguages.map((l) => ({ code: l.languageCode, name: l.language.name, type: l.type, proficiency: l.proficiency })),
+      followers,
+      following,
+      isFollowing: !!isFollowing,
+      isSelf,
+    };
   }
 }
