@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { SafetyService } from '../safety/safety.service';
 import { CreateRoomDto, StartCallDto } from './dto/voice.dto';
@@ -25,8 +25,42 @@ function joinDescription(desc: string | null, mods: string[]): string | null {
   return `${base}${MOD_TAG}${mods.join(',')}`;
 }
 
+export const ROOM_THEMES = ['default', 'sunset', 'ocean', 'forest', 'night', 'rose', 'gold', 'aurora'];
+
 @Injectable()
-export class VoiceService {
+export class VoiceService implements OnModuleInit {
+  private readonly log = new Logger('Voice');
+  private themesReady = false;
+
+  /** Additive, idempotent bootstrap: CREATE TABLE IF NOT EXISTS only. */
+  async onModuleInit() {
+    try {
+      await this.prisma.$executeRawUnsafe(
+        `CREATE TABLE IF NOT EXISTS voice_room_themes (room_id TEXT PRIMARY KEY, theme TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
+      );
+      this.themesReady = true;
+      this.log.log('voice room themes table ready');
+    } catch (e) {
+      this.log.error('voice themes bootstrap failed: ' + (e as Error).message);
+    }
+  }
+
+  async setTheme(hostId: string, roomId: string, theme: string) {
+    if (!ROOM_THEMES.includes(theme)) throw new BadRequestException('Unknown theme');
+    await this.requireHost(hostId, roomId);
+    if (!this.themesReady) throw new BadRequestException('Themes are not available right now');
+    await this.prisma.$executeRaw`INSERT INTO voice_room_themes (room_id, theme) VALUES (${roomId}, ${theme})
+      ON CONFLICT (room_id) DO UPDATE SET theme = ${theme}, updated_at = now()`;
+    return { success: true, theme };
+  }
+
+  private async themeOf(roomId: string): Promise<string> {
+    if (!this.themesReady) return 'default';
+    try {
+      const rows = await this.prisma.$queryRaw<{ theme: string }[]>`SELECT theme FROM voice_room_themes WHERE room_id = ${roomId}`;
+      return rows[0]?.theme ?? 'default';
+    } catch { return 'default'; }
+  }
   /** Live queue of listeners asking for the stage (room id -> user ids). In memory on purpose. */
   private readonly stageRequests = new Map<string, Set<string>>();
 
@@ -83,6 +117,7 @@ export class VoiceService {
       ...room,
       description,
       moderatorIds: mods,
+      theme: await this.themeOf(id),
       stageRequests: [...(this.stageRequests.get(id) ?? [])],
     };
   }

@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
-import { CreateRoomDto, RoomRoleDto, RoomUserDto, StartCallDto } from './dto/voice.dto';
+import { CreateRoomDto, RoomRoleDto, RoomThemeDto, RoomUserDto, StartCallDto } from './dto/voice.dto';
 import { VoiceService } from './voice.service';
 
 @ApiTags('voice')
@@ -48,6 +48,11 @@ export class VoiceController {
   @Post('voice-rooms/:id/stage/reject')
   rejectStage(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RoomUserDto) {
     return this.voice.rejectStage(user.id, id, dto.userId);
+  }
+
+  @Post('voice-rooms/:id/theme')
+  setTheme(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RoomThemeDto) {
+    return this.voice.setTheme(user.id, id, dto.theme);
   }
 
   @Post('voice-rooms/:id/moderators/add')

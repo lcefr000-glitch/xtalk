@@ -35,3 +35,8 @@ export class StartCallDto {
   @IsIn(['AUDIO', 'VIDEO'])
   type!: 'AUDIO' | 'VIDEO';
 }
+
+export class RoomThemeDto {
+  @IsString()
+  theme!: string;
+}
