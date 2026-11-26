@@ -39,7 +39,7 @@ export class SubscriptionsService {
   }
 
   async devActivate(userId: string, tier: string) {
-    if ((process.env.DEV_BILLING ?? 'on') === 'off') throw new BadRequestException('Test activation is disabled');
+    if (process.env.DEV_BILLING !== 'on') throw new BadRequestException('Test activation is disabled');
     const months: Record<string, number | null> = { '1m': 1, '3m': 3, '1y': 12, life: null };
     if (!(tier in months)) throw new BadRequestException('Unknown tier');
     const m = months[tier];

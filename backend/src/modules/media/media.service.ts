@@ -4,6 +4,15 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const MAX_BYTES = 6 * 1024 * 1024;
 
+/** Check the real file signature so a non-image can't be stored under an image type. */
+function sniffOk(mime: string, d: Buffer): boolean {
+  if (mime === 'image/jpeg') return d.length > 3 && d[0] === 0xff && d[1] === 0xd8 && d[2] === 0xff;
+  if (mime === 'image/png') return d.length > 8 && d.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  if (mime === 'image/gif') { const h = d.subarray(0, 6).toString('latin1'); return h === 'GIF87a' || h === 'GIF89a'; }
+  if (mime === 'image/webp') return d.length > 12 && d.subarray(0, 4).toString('latin1') === 'RIFF' && d.subarray(8, 12).toString('latin1') === 'WEBP';
+  return false;
+}
+
 @Injectable()
 export class MediaService implements OnModuleInit {
   private readonly log = new Logger('Media');
@@ -38,6 +47,10 @@ export class MediaService implements OnModuleInit {
     if (!ALLOWED.includes(m)) throw new BadRequestException('Only JPEG, PNG, WEBP or GIF images are allowed');
     if (!Buffer.isBuffer(data) || data.length === 0) throw new BadRequestException('Empty upload');
     if (data.length > MAX_BYTES) throw new BadRequestException('Image too large (max 6 MB)');
+    if (!sniffOk(m, data)) throw new BadRequestException('File content does not match an image type');
+    const q = await this.prisma.$queryRawUnsafe<{ n: number; b: number }[]>(
+      `SELECT COUNT(*)::int AS n, COALESCE(SUM(byte_size),0)::bigint::float8 AS b FROM media_files WHERE owner_id = $1 AND created_at > now() - interval '1 day'`, ownerId);
+    if ((q[0]?.n ?? 0) >= 150 || (q[0]?.b ?? 0) > 150 * 1024 * 1024) throw new BadRequestException('Daily upload limit reached');
     const rows = await this.prisma.$queryRawUnsafe<{ id: string }[]>(
       `INSERT INTO media_files (owner_id, mime, data, byte_size) VALUES ($1, $2, $3, $4) RETURNING id::text AS id`,
       ownerId, m, data, data.length,

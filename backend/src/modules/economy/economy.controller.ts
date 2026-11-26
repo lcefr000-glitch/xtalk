@@ -62,7 +62,7 @@ export class EconomyController {
   }
 
   @Get('rooms/:roomId/gifts')
-  roomGifts(@Param('roomId', ParseUUIDPipe) roomId: string, @Query('since') since?: string) {
-    return this.economy.roomGifts(roomId, since);
+  roomGifts(@CurrentUser() user: AuthUser, @Param('roomId', ParseUUIDPipe) roomId: string, @Query('since') since?: string) {
+    return this.economy.roomGifts(roomId, since, user.id);
   }
 }

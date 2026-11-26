@@ -152,6 +152,15 @@ export class VoiceService implements OnModuleInit {
     return out;
   }
 
+  /** Room detail for a viewer: a private room is only visible to its host, their followers and people already inside. */
+  async getRoomFor(viewerId: string, id: string) {
+    const room = await this.getRoom(id);
+    if ((room as any).isPrivate && !(await this.canSeePrivate(viewerId, room.hostId)) && !room.participants.some((p) => p.userId === viewerId)) {
+      throw new NotFoundException('Room not found');
+    }
+    return room;
+  }
+
   async getRoom(id: string) {
     const room = await this.prisma.voiceRoom.findUnique({
       where: { id },

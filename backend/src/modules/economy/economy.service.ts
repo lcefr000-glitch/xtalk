@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
 export interface GiftDef { id: string; name: string; nameAr: string; emoji: string; price: number; fx: string }
@@ -163,7 +163,7 @@ export class EconomyService implements OnModuleInit {
   /** TEST ONLY: free coins, no payment. Disabled with DEV_BILLING=off. */
   async testGrant(userId: string) {
     this.ensureReady();
-    if ((process.env.DEV_BILLING ?? 'on') === 'off') throw new BadRequestException('Test coins are disabled');
+    if (process.env.DEV_BILLING !== 'on') throw new BadRequestException('Test coins are disabled');
     const cur = await this.me(userId);
     if (cur.coins >= TEST_BALANCE_CAP) throw new BadRequestException('You already have plenty of test coins');
     await this.prisma.$executeRaw`
@@ -196,8 +196,12 @@ export class EconomyService implements OnModuleInit {
     return { id, gift, wallet: await this.me(senderId) };
   }
 
-  async roomGifts(roomId: string, sinceIso?: string) {
+  async roomGifts(roomId: string, sinceIso?: string, viewerId?: string) {
     this.ensureReady();
+    if (viewerId) {
+      const inRoom = await this.prisma.voiceRoomParticipant.findFirst({ where: { roomId, userId: viewerId, leftAt: null }, select: { id: true } });
+      if (!inRoom) throw new ForbiddenException('Join the room first');
+    }
     const since = sinceIso && !Number.isNaN(Date.parse(sinceIso)) ? new Date(sinceIso) : new Date(Date.now() - 60_000);
     const rows = await this.prisma.$queryRaw<
       { id: string; sender_id: string; receiver_id: string; gift_id: string; coins: number; created_at: Date; sender_spent: number | null }[]

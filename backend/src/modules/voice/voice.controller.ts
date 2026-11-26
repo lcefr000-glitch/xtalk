@@ -28,7 +28,7 @@ export class VoiceController {
   @Get('voice-rooms/:id')
   async get(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     await this.voice.tickRoomTime(user.id, id);
-    return this.voice.getRoom(id);
+    return this.voice.getRoomFor(user.id, id);
   }
 
   @Post('voice-rooms/:id/join')
