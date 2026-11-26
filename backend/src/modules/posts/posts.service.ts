@@ -1,3 +1,4 @@
+import { PrivacyService } from '../privacy/privacy.service';
 import { ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { SafetyService } from '../safety/safety.service';
@@ -26,6 +27,7 @@ export class PostsService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly safety: SafetyService,
+    private readonly privacy: PrivacyService,
   ) {}
 
   async create(userId: string, dto: CreatePostDto) {
@@ -53,6 +55,7 @@ export class PostsService implements OnModuleInit {
       select: { blockerId: true, blockedId: true },
     });
     const excluded = new Set<string>();
+    if (!opts.mine) for (const id of await this.privacy.idsWhere('hide_moments', true)) if (id !== userId) excluded.add(id);
     for (const b of blocked) {
       excluded.add(b.blockerId === userId ? b.blockedId : b.blockerId);
     }

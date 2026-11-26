@@ -1,3 +1,4 @@
+import { PrivacyService } from '../privacy/privacy.service';
 import { Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -7,7 +8,7 @@ import { FollowsService } from './follows.service';
 @ApiBearerAuth()
 @Controller()
 export class FollowsController {
-  constructor(private readonly follows: FollowsService) {}
+  constructor(private readonly follows: FollowsService, private readonly privacy: PrivacyService) {}
 
   @Post('users/:id/follow')
   follow(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
@@ -31,12 +32,14 @@ export class FollowsController {
   }
 
   @Get('users/:id/followers')
-  userFollowers(@Param('id', ParseUUIDPipe) id: string, @Query('page') page?: string, @Query('limit') limit?: string) {
+  async userFollowers(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Query('page') page?: string, @Query('limit') limit?: string) {
+    if (user.id !== id && !(await this.privacy.get(id)).showFollowLists) return { total: 0, page: 1, limit: 0, results: [], hidden: true };
     return this.follows.followers(id, page ? parseInt(page, 10) : 1, limit ? Math.min(parseInt(limit, 10), 50) : 30);
   }
 
   @Get('users/:id/following')
-  userFollowing(@Param('id', ParseUUIDPipe) id: string, @Query('page') page?: string, @Query('limit') limit?: string) {
+  async userFollowing(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Query('page') page?: string, @Query('limit') limit?: string) {
+    if (user.id !== id && !(await this.privacy.get(id)).showFollowLists) return { total: 0, page: 1, limit: 0, results: [], hidden: true };
     return this.follows.following(id, page ? parseInt(page, 10) : 1, limit ? Math.min(parseInt(limit, 10), 50) : 30);
   }
 }

@@ -1,3 +1,4 @@
+import { PrivacyService } from '../privacy/privacy.service';
 import { BadRequestException, ForbiddenException, Injectable, Logger, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { levelFor } from '../economy/economy.service';
@@ -27,7 +28,7 @@ export class ProfileExtrasService implements OnModuleInit {
   private readonly log = new Logger('ProfileExtras');
   private ready = false;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly privacy: PrivacyService) {}
 
   /** Additive, idempotent bootstrap: CREATE TABLE IF NOT EXISTS only. */
   async onModuleInit() {
@@ -145,6 +146,7 @@ export class ProfileExtrasService implements OnModuleInit {
   }
 
   async postsOf(viewerId: string, userId: string, before?: string, limit = 20) {
+    if (viewerId !== userId && (await this.privacy.get(userId)).hideMoments) return { results: [], nextCursor: null, hidden: true };
     await this.assertVisible(viewerId, userId);
     const take = Math.min(Math.max(limit, 1), 50);
     const posts = await this.prisma.post.findMany({

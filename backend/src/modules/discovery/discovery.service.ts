@@ -1,3 +1,4 @@
+import { PrivacyService } from '../privacy/privacy.service';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -23,7 +24,7 @@ export function matchScore(viewer: any, u: any): number {
 
 @Injectable()
 export class DiscoveryService {
-  constructor(private readonly prisma: PrismaService, private readonly safety: SafetyService) {}
+  constructor(private readonly prisma: PrismaService, private readonly safety: SafetyService, private readonly privacy: PrivacyService) {}
 
   /**
    * Partner search. Safety rails:
@@ -37,7 +38,7 @@ export class DiscoveryService {
       where: { id: viewerId },
       select: { isMinor: true, profile: { select: { interests: true } }, userLanguages: true },
     });
-    const hidden = await this.safety.countryBlockedUserIds(viewerId);
+    const hidden = [...(await this.safety.countryBlockedUserIds(viewerId)), ...(await this.privacy.idsWhere('discoverable', false))];
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
@@ -102,7 +103,7 @@ export class DiscoveryService {
       return { results: [], hint: 'Set a native language and at least one learning language to get recommendations' };
     }
 
-    const hidden = await this.safety.countryBlockedUserIds(viewerId);
+    const hidden = [...(await this.safety.countryBlockedUserIds(viewerId)), ...(await this.privacy.idsWhere('discoverable', false))];
     const users = await this.prisma.user.findMany({
       where: {
         id: { not: viewerId, notIn: hidden },

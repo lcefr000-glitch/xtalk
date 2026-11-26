@@ -24,6 +24,7 @@ import { EconomyModule } from './modules/economy/economy.module';
 import { ChatExtrasModule } from './modules/chat-extras/chat-extras.module';
 import { ProfileExtrasModule } from './modules/profile-extras/profile-extras.module';
 import { StoreModule } from './modules/store/store.module';
+import { PrivacyModule } from './modules/privacy/privacy.module';
 import { MediaModule } from './modules/media/media.module';
 import { ControlModule } from './modules/control/control.module';
 import { AdminModule } from './modules/admin/admin.module';
@@ -61,6 +62,7 @@ import { LiveModule } from './modules/live/live.module';
     StoreModule,
     ControlModule,
     MediaModule,
+    PrivacyModule,
     AdminModule,
     ProgressModule,
     VocabularyModule,

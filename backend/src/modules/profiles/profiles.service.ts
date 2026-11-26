@@ -1,3 +1,4 @@
+import { PrivacyService } from '../privacy/privacy.service';
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { SafetyService } from '../safety/safety.service';
@@ -5,7 +6,7 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Injectable()
 export class ProfilesService {
-  constructor(private readonly prisma: PrismaService, private readonly safety: SafetyService) {}
+  constructor(private readonly prisma: PrismaService, private readonly safety: SafetyService, private readonly privacy: PrivacyService) {}
 
   async getMyProfile(userId: string) {
     const profile = await this.prisma.profile.findUnique({
@@ -59,7 +60,7 @@ export class ProfilesService {
     if (blocked && blocked.blockerId === id) throw new ForbiddenException('BLOCKED_BY_USER');
     if (blocked || (viewerId !== id && (await this.safety.isCountryBlockedEitherWay(viewerId, id)))) throw new ForbiddenException('Profile unavailable');
     const isSelf = viewerId === id;
-    if (!isSelf) {
+    if (!isSelf && (await this.privacy.shouldRecordView(viewerId))) {
       // Record the visit for the owner's VIP "Visitors" list. Never blocks or fails the profile load.
       this.prisma.$executeRaw`
         INSERT INTO profile_views (viewer_id, viewed_id, viewed_at, views) VALUES (${viewerId}, ${id}, now(), 1)
