@@ -4,30 +4,28 @@ const wrap = (title: string, body: string) => `<!doctype html><html lang="en"><h
 
 export const PRIVACY_HTML = wrap('Privacy Policy', `
 <h1>X Talk Privacy Policy</h1>
-<p>Last updated: November 2026. X Talk is a language exchange and social learning app. This page explains what data the app handles.</p>
-<h2>Data we collect</h2>
+<p>Last updated: November 2026. This policy explains how X Talk handles your information when you use our language exchange app.</p>
+<h2>Information we collect</h2>
 <ul>
-<li>Account data: email address, username, password (stored only as a one-way hash), or your Google account identity if you sign in with Google.</li>
-<li>Profile data you choose to add: display name, photo, bio, country, date of birth, languages, interests and similar profile fields.</li>
-<li>Content you create: chat messages, photos you upload, moments (posts), comments, likes, voice room activity and text chat inside rooms, gifts you send or receive.</li>
-<li>Purchase data: coin balance, VIP status and redeem-code history. Payments are not taken inside the app.</li>
-<li>Technical data: device and session information for sign-in security (for example IP address and device type), and diagnostic server logs.</li>
+<li>Account information, such as your email address and username, or the identity you use to sign in.</li>
+<li>Profile information you choose to add, such as name, photo, bio, country, date of birth and languages.</li>
+<li>Content you create or send, such as messages, photos, posts, comments and voice room activity.</li>
+<li>Purchase and virtual item information, such as coin balance and membership status.</li>
+<li>Basic technical information needed to keep your account secure and the service running.</li>
 </ul>
-<p>The app does not collect your GPS location and does not contain advertising or third-party analytics SDKs.</p>
-<h2>Voice rooms and calls</h2>
-<p>Live audio is sent in real time through our audio provider, LiveKit. Audio is used only to deliver the conversation. We do not store audio recordings.</p>
-<h2>How we use data</h2>
-<p>To run the app: sign you in, show your profile to other users according to your privacy settings, deliver messages, show moments, run voice rooms and gifts, prevent abuse and respond to reports.</p>
+<p>We do not collect your precise location.</p>
+<h2>How we use information</h2>
+<p>To provide and improve the app, show your profile and content to other users according to your privacy settings, keep the community safe, and respond to reports and support requests.</p>
 <h2>Sharing</h2>
-<p>We do not sell your data. Your profile and content are visible to other users according to your privacy settings. Our hosting provider (Railway) and audio provider (LiveKit) process data for us to run the service. We may act on reports and share information if the law requires it.</p>
+<p>We do not sell your personal information. We use trusted third-party service providers for hosting and real-time voice, and they process information only to help us run the service. We may share information when the law requires it or to protect people from harm.</p>
 <h2>Security</h2>
-<p>Data is sent over HTTPS. Passwords are hashed. Sign-in tokens on your phone are stored encrypted. No system is perfectly secure.</p>
+<p>We use industry-standard safeguards to protect your information. No service can guarantee absolute security.</p>
 <h2>Retention and deletion</h2>
-<p>You can delete your account in the app (Settings, Account, Delete account) or from the web: <a href="/api/v1/legal/delete-account">delete-account page</a>. Deleting removes your profile details, posts, comments, likes, follows and notifications, blanks your chat messages, and signs you out everywhere. Reports about you and basic security logs may be kept for a limited time to prevent abuse.</p>
-<h2>Your controls</h2>
-<p>Settings has privacy options (who sees your country, followers lists, moments and visits) and you can block and report users.</p>
+<p>You can delete your account in the app (Settings, Account, Delete account) or on the web at <a href="/api/v1/legal/delete-account">our delete-account page</a>. When you delete your account we remove your profile details, posts, comments and related activity and stop showing your messages. We may keep limited records where needed for safety and legal reasons.</p>
+<h2>Your choices</h2>
+<p>You can control who sees parts of your profile in Settings, and you can block and report other users.</p>
 <h2>Children</h2>
-<p>X Talk is not for children under 13.</p>
+<p>X Talk is not intended for children under 13.</p>
 <h2>Contact</h2>
 <p>Questions or requests: <a href="${CONTACT}">${CONTACT}</a></p>`);
 
@@ -49,7 +47,7 @@ export const TERMS_HTML = wrap('Terms of Use', `
 
 export const DELETE_HTML = wrap('Delete account', `
 <h1>Delete your X Talk account</h1>
-<p>Enter the email and password of your X Talk account. Your account is deleted right away and cannot be recovered. This removes your profile details, posts, comments, likes, follows and notifications, blanks your messages and signs you out. See the <a href="/api/v1/legal/privacy">privacy policy</a> for what is kept.</p>
+<p>Enter the email and password of your X Talk account. Your account is deleted right away and cannot be recovered. This removes your profile details, posts and comments and signs you out. See the <a href="/api/v1/legal/privacy">privacy policy</a> for what may be kept.</p>
 <form id="f"><input id="e" type="email" placeholder="Email" autocomplete="username" required><input id="p" type="password" placeholder="Password" autocomplete="current-password" required><button type="submit">Permanently delete my account</button></form>
 <p id="m"></p>
 <p>Signed up with Google, or cannot sign in? Delete inside the app (Settings, Account, Delete account), or message <a href="${CONTACT}">${CONTACT}</a> from the profile that matches your account and ask for deletion.</p>
