@@ -29,4 +29,14 @@ export class FollowsController {
   following(@CurrentUser() user: AuthUser, @Query('page') page?: string, @Query('limit') limit?: string) {
     return this.follows.following(user.id, page ? parseInt(page, 10) : 1, limit ? Math.min(parseInt(limit, 10), 50) : 20);
   }
+
+  @Get('users/:id/followers')
+  userFollowers(@Param('id', ParseUUIDPipe) id: string, @Query('page') page?: string, @Query('limit') limit?: string) {
+    return this.follows.followers(id, page ? parseInt(page, 10) : 1, limit ? Math.min(parseInt(limit, 10), 50) : 30);
+  }
+
+  @Get('users/:id/following')
+  userFollowing(@Param('id', ParseUUIDPipe) id: string, @Query('page') page?: string, @Query('limit') limit?: string) {
+    return this.follows.following(id, page ? parseInt(page, 10) : 1, limit ? Math.min(parseInt(limit, 10), 50) : 30);
+  }
 }

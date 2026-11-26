@@ -87,7 +87,7 @@ export class VoiceService implements OnModuleInit {
     const rooms = await this.prisma.voiceRoom.findMany({
       where: liveOnly ? { isLive: true } : {},
       include: {
-        host: { select: { id: true, username: true, profile: { select: { displayName: true, photoUrl: true } } } },
+        host: { select: { id: true, username: true, profile: { select: { displayName: true, photoUrl: true, country: true } } } },
         language: true,
         _count: { select: { participants: { where: { leftAt: null } } } },
       },

@@ -59,6 +59,12 @@ export class ProfilesService {
     if (blocked && blocked.blockerId === id) throw new ForbiddenException('BLOCKED_BY_USER');
     if (blocked || (viewerId !== id && (await this.safety.isCountryBlockedEitherWay(viewerId, id)))) throw new ForbiddenException('Profile unavailable');
     const isSelf = viewerId === id;
+    if (!isSelf) {
+      // Record the visit for the owner's VIP "Visitors" list. Never blocks or fails the profile load.
+      this.prisma.$executeRaw`
+        INSERT INTO profile_views (viewer_id, viewed_id, viewed_at, views) VALUES (${viewerId}, ${id}, now(), 1)
+        ON CONFLICT (viewer_id, viewed_id) DO UPDATE SET viewed_at = now(), views = profile_views.views + 1`.catch(() => undefined);
+    }
     if (!user.profile.profileIsPublic && !isSelf) throw new ForbiddenException('This profile is private');
     const [followers, following, isFollowing] = await Promise.all([
       this.prisma.follow.count({ where: { followingId: id } }),

@@ -46,6 +46,13 @@ export class ProfileExtrasService implements OnModuleInit {
           PRIMARY KEY (user_id, gift_id)
         )`,
       );
+      await this.prisma.$executeRawUnsafe(
+        `CREATE TABLE IF NOT EXISTS profile_views (
+          viewer_id TEXT NOT NULL, viewed_id TEXT NOT NULL, viewed_at TIMESTAMPTZ NOT NULL DEFAULT now(), views INTEGER NOT NULL DEFAULT 1,
+          PRIMARY KEY (viewer_id, viewed_id)
+        )`,
+      );
+      await this.prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS profile_views_viewed_idx ON profile_views (viewed_id, viewed_at DESC)`);
       this.ready = true;
       this.log.log('profile_extras table ready');
     } catch (e) {
@@ -180,6 +187,28 @@ export class ProfileExtrasService implements OnModuleInit {
       giftsReceived: received,
       totalGifts: received.reduce((a, b) => a + b.count, 0),
       totalCoinsReceived: received.reduce((a, b) => a + b.coins, 0),
+    };
+  }
+
+  /** VIP-only list of who viewed my profile. Non-VIP users only get the count. */
+  async visitors(userId: string) {
+    this.ensureReady();
+    const sub = await this.prisma.subscription.findUnique({ where: { userId } });
+    const vip = !!sub && sub.plan === 'PREMIUM' && sub.status === 'ACTIVE' && (!sub.expiresAt || sub.expiresAt > new Date());
+    const totalRows = await this.prisma.$queryRaw<{ n: bigint }[]>`SELECT count(*)::bigint AS n FROM profile_views WHERE viewed_id = ${userId}`;
+    const total = Number(totalRows[0]?.n ?? 0);
+    if (!vip) return { vip: false, total, results: [] };
+    const rows = await this.prisma.$queryRaw<{ viewer_id: string; viewed_at: Date; views: number }[]>`
+      SELECT viewer_id, viewed_at, views FROM profile_views WHERE viewed_id = ${userId} ORDER BY viewed_at DESC LIMIT 50`;
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: rows.map((r) => r.viewer_id) }, deletedAt: null },
+      select: { id: true, username: true, profile: { select: { displayName: true, photoUrl: true, country: true } } },
+    });
+    const byId = new Map(users.map((u) => [u.id, u]));
+    return {
+      vip: true,
+      total,
+      results: rows.filter((r) => byId.has(r.viewer_id)).map((r) => ({ ...byId.get(r.viewer_id)!, viewedAt: r.viewed_at, views: r.views })),
     };
   }
 }

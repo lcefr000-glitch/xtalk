@@ -34,6 +34,11 @@ class WishlistDto {
 export class ProfileExtrasController {
   constructor(private readonly extras: ProfileExtrasService) {}
 
+  @Get('visitors')
+  visitors(@CurrentUser() user: AuthUser) {
+    return this.extras.visitors(user.id);
+  }
+
   @Get('me')
   me(@CurrentUser() user: AuthUser) {
     return this.extras.get(user.id);
