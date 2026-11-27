@@ -106,6 +106,13 @@ export function spentForLevel(level: number): number {
   return THRESHOLDS[Math.min(Math.max(level, 1), MAX_LEVEL) - 1];
 }
 
+/** Set to false to stop keeping the old (50*(n-1)^2) level as a floor for accounts that had already spent coins. */
+export const GRANDFATHER = true;
+/** Coins that count towards the level: real spend, or the start of the grandfathered level if that is higher. */
+export function effSpent(total: number, gfLevel: number | null | undefined): number {
+  return GRANDFATHER && gfLevel ? Math.max(total ?? 0, spentForLevel(gfLevel)) : total ?? 0;
+}
+
 const TEST_GRANT = 500;
 const TEST_BALANCE_CAP = 5000;
 
@@ -126,6 +133,11 @@ export class EconomyService implements OnModuleInit {
           total_spent INTEGER NOT NULL DEFAULT 0,
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
+      );
+      // Grandfathering: accounts that already spent coins keep the level they had under the old formula, once.
+      await this.prisma.$executeRawUnsafe(`ALTER TABLE economy_wallets ADD COLUMN IF NOT EXISTS gf_level INTEGER`);
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE economy_wallets SET gf_level = LEAST(${MAX_LEVEL}, floor(sqrt(total_spent / 50.0))::int + 1) WHERE gf_level IS NULL AND total_spent > 0`,
       );
       await this.prisma.$executeRawUnsafe(
         `CREATE TABLE IF NOT EXISTS gift_transactions (
@@ -161,14 +173,16 @@ export class EconomyService implements OnModuleInit {
 
   async me(userId: string) {
     this.ensureReady();
-    const rows = await this.prisma.$queryRaw<{ coins: number; total_spent: number }[]>`
-      SELECT coins, total_spent FROM economy_wallets WHERE user_id = ${userId}`;
+    const rows = await this.prisma.$queryRaw<{ coins: number; total_spent: number; gf_level: number | null }[]>`
+      SELECT coins, total_spent, gf_level FROM economy_wallets WHERE user_id = ${userId}`;
     const coins = rows[0]?.coins ?? 0;
     const totalSpent = rows[0]?.total_spent ?? 0;
-    const level = levelFor(totalSpent);
+    const eff = effSpent(totalSpent, rows[0]?.gf_level);
+    const off = eff - totalSpent; // shifts the progress window for grandfathered accounts
+    const level = levelFor(eff);
     const dm = await this.prisma.$queryRaw<{ points: bigint }[]>`SELECT points FROM economy_diamonds WHERE user_id = ${userId}`;
     const diamonds = Number(dm[0]?.points ?? 0) / 10;
-    return { coins, totalSpent, level, diamonds, nextLevelAt: spentForLevel(level + 1), levelStartsAt: spentForLevel(level) };
+    return { coins, totalSpent, level, diamonds, nextLevelAt: spentForLevel(level + 1) - off, levelStartsAt: spentForLevel(level) - off };
   }
 
   /** Timeline for the gift level screen: every level with its threshold and what it unlocks. */
@@ -183,9 +197,9 @@ export class EconomyService implements OnModuleInit {
 
   async levelOf(userId: string) {
     this.ensureReady();
-    const rows = await this.prisma.$queryRaw<{ total_spent: number }[]>`
-      SELECT total_spent FROM economy_wallets WHERE user_id = ${userId}`;
-    return { userId, level: levelFor(rows[0]?.total_spent ?? 0) };
+    const rows = await this.prisma.$queryRaw<{ total_spent: number; gf_level: number | null }[]>`
+      SELECT total_spent, gf_level FROM economy_wallets WHERE user_id = ${userId}`;
+    return { userId, level: levelFor(effSpent(rows[0]?.total_spent ?? 0, rows[0]?.gf_level)) };
   }
 
   async levelsOf(ids: string[]) {
@@ -194,9 +208,9 @@ export class EconomyService implements OnModuleInit {
     const levels: Record<string, number> = {};
     for (const id of clean) levels[id] = 1;
     if (clean.length) {
-      const rows = await this.prisma.$queryRaw<{ user_id: string; total_spent: number }[]>`
-        SELECT user_id, total_spent FROM economy_wallets WHERE user_id = ANY(${clean}::text[])`;
-      for (const r of rows) levels[r.user_id] = levelFor(r.total_spent ?? 0);
+      const rows = await this.prisma.$queryRaw<{ user_id: string; total_spent: number; gf_level: number | null }[]>`
+        SELECT user_id, total_spent, gf_level FROM economy_wallets WHERE user_id = ANY(${clean}::text[])`;
+      for (const r of rows) levels[r.user_id] = levelFor(effSpent(r.total_spent ?? 0, r.gf_level));
     }
     return { levels };
   }
@@ -218,8 +232,8 @@ export class EconomyService implements OnModuleInit {
     const gift = GIFTS.find((g) => g.id === giftId);
     if (!gift) throw new BadRequestException('Unknown gift');
     if (gift.minLevel && gift.minLevel > 1) {
-      const w = await this.prisma.$queryRaw<{ total_spent: number }[]>`SELECT total_spent FROM economy_wallets WHERE user_id = ${senderId}`;
-      if (levelFor(w[0]?.total_spent ?? 0) < gift.minLevel) throw new ForbiddenException(`This gift unlocks at level ${gift.minLevel}`);
+      const w = await this.prisma.$queryRaw<{ total_spent: number; gf_level: number | null }[]>`SELECT total_spent, gf_level FROM economy_wallets WHERE user_id = ${senderId}`;
+      if (levelFor(effSpent(w[0]?.total_spent ?? 0, w[0]?.gf_level)) < gift.minLevel) throw new ForbiddenException(`This gift unlocks at level ${gift.minLevel}`);
     }
     if (receiverId === senderId) throw new BadRequestException('You cannot gift yourself');
     const room = await this.prisma.voiceRoom.findUnique({ where: { id: roomId }, select: { id: true, isLive: true } });
@@ -260,15 +274,15 @@ export class EconomyService implements OnModuleInit {
     }
     const since = sinceIso && !Number.isNaN(Date.parse(sinceIso)) ? new Date(sinceIso) : new Date(Date.now() - 60_000);
     const rows = await this.prisma.$queryRaw<
-      { id: string; sender_id: string; receiver_id: string; gift_id: string; coins: number; created_at: Date; sender_spent: number | null }[]
+      { id: string; sender_id: string; receiver_id: string; gift_id: string; coins: number; created_at: Date; sender_spent: number | null; sender_gf: number | null }[]
     >`
-      SELECT g.id, g.sender_id, g.receiver_id, g.gift_id, g.coins, g.created_at, w.total_spent AS sender_spent
+      SELECT g.id, g.sender_id, g.receiver_id, g.gift_id, g.coins, g.created_at, w.total_spent AS sender_spent, w.gf_level AS sender_gf
       FROM gift_transactions g LEFT JOIN economy_wallets w ON w.user_id = g.sender_id
       WHERE g.room_id = ${roomId} AND date_trunc('milliseconds', g.created_at) > ${since}
       ORDER BY g.created_at ASC LIMIT 50`;
     return rows.map((r) => ({
       id: r.id, senderId: r.sender_id, receiverId: r.receiver_id, giftId: r.gift_id, coins: r.coins,
-      createdAt: r.created_at.toISOString(), senderLevel: levelFor(r.sender_spent ?? 0),
+      createdAt: r.created_at.toISOString(), senderLevel: levelFor(effSpent(r.sender_spent ?? 0, r.sender_gf)),
     }));
   }
 
