@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { ArrayMaxSize, IsArray, IsString, IsUUID } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsInt, IsString, IsUUID, Max, Min } from 'class-validator';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { EconomyService } from './economy.service';
 
@@ -13,6 +13,18 @@ class SendGiftDto {
 
   @IsString()
   giftId!: string;
+}
+
+class ExchangeDto {
+  @IsInt()
+  @Min(1)
+  @Max(1000000)
+  diamonds!: number;
+}
+
+class ExchangeVipDto {
+  @IsString()
+  tier!: string;
 }
 
 class LevelsDto {
@@ -36,6 +48,23 @@ export class EconomyController {
   @Get('rooms/:roomId/leaderboard')
   roomLeaderboard(@CurrentUser() user: AuthUser, @Param('roomId', ParseUUIDPipe) roomId: string, @Query('period') period?: string) {
     return this.economy.roomLeaderboard(user.id, roomId, period ?? 'day');
+  }
+
+  @Get('diamonds')
+  diamonds(@CurrentUser() user: AuthUser) {
+    return this.economy.diamonds(user.id);
+  }
+
+  @HttpCode(200)
+  @Post('diamonds/exchange-coins')
+  exchangeCoins(@CurrentUser() user: AuthUser, @Body() dto: ExchangeDto) {
+    return this.economy.exchangeToCoins(user.id, dto.diamonds);
+  }
+
+  @HttpCode(200)
+  @Post('diamonds/exchange-vip')
+  exchangeVip(@CurrentUser() user: AuthUser, @Body() dto: ExchangeVipDto) {
+    return this.economy.exchangeToVip(user.id, dto.tier);
   }
 
   @Get('me')

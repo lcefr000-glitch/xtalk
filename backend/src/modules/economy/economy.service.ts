@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { SafetyService } from '../safety/safety.service';
+import { StoreService, VIP_PLANS } from '../store/store.service';
 
 export interface GiftDef { id: string; name: string; nameAr: string; emoji: string; price: number; fx: string }
 
@@ -89,7 +90,7 @@ export class EconomyService implements OnModuleInit {
   private readonly log = new Logger('Economy');
   private ready = false;
 
-  constructor(private readonly prisma: PrismaService, private readonly safety: SafetyService) {}
+  constructor(private readonly prisma: PrismaService, private readonly safety: SafetyService, private readonly store: StoreService) {}
 
   /** Additive, idempotent bootstrap: only CREATE ... IF NOT EXISTS. Never alters or drops anything. */
   async onModuleInit() {
@@ -116,6 +117,9 @@ export class EconomyService implements OnModuleInit {
       await this.prisma.$executeRawUnsafe(
         `CREATE INDEX IF NOT EXISTS gift_transactions_room_idx ON gift_transactions (room_id, created_at)`,
       );
+      await this.prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS economy_diamonds (user_id TEXT PRIMARY KEY, points BIGINT NOT NULL DEFAULT 0 CHECK (points >= 0), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+      await this.prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS diamond_events (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL, points BIGINT NOT NULL, ref TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+      await this.prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS diamond_events_gift_ref ON diamond_events (ref) WHERE kind = 'GIFT'`);
       this.ready = true;
       this.log.log('economy tables ready');
     } catch (e) {
@@ -138,7 +142,9 @@ export class EconomyService implements OnModuleInit {
     const coins = rows[0]?.coins ?? 0;
     const totalSpent = rows[0]?.total_spent ?? 0;
     const level = levelFor(totalSpent);
-    return { coins, totalSpent, level, nextLevelAt: spentForLevel(level + 1), levelStartsAt: spentForLevel(level) };
+    const dm = await this.prisma.$queryRaw<{ points: bigint }[]>`SELECT points FROM economy_diamonds WHERE user_id = ${userId}`;
+    const diamonds = Number(dm[0]?.points ?? 0) / 10;
+    return { coins, totalSpent, level, diamonds, nextLevelAt: spentForLevel(level + 1), levelStartsAt: spentForLevel(level) };
   }
 
   async levelOf(userId: string) {
@@ -185,15 +191,26 @@ export class EconomyService implements OnModuleInit {
       select: { userId: true },
     });
     if (members.length < 2) throw new BadRequestException('Both people must be in the room');
-    // Atomic deduction: fails (0 rows) when the balance is too low.
-    const updated = await this.prisma.$executeRaw`
-      UPDATE economy_wallets SET coins = coins - ${gift.price}, total_spent = total_spent + ${gift.price}, updated_at = now()
-      WHERE user_id = ${senderId} AND coins >= ${gift.price}`;
-    if (updated === 0) throw new BadRequestException('Not enough coins');
     const id = (await import('crypto')).randomUUID();
-    await this.prisma.$executeRaw`
-      INSERT INTO gift_transactions (id, sender_id, receiver_id, room_id, gift_id, coins)
-      VALUES (${id}, ${senderId}, ${receiverId}, ${roomId}, ${giftId}, ${gift.price})`;
+    // One transaction: deduction, gift record and the receiver's diamonds either all happen or none do.
+    await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.$executeRaw`
+        UPDATE economy_wallets SET coins = coins - ${gift.price}, total_spent = total_spent + ${gift.price}, updated_at = now()
+        WHERE user_id = ${senderId} AND coins >= ${gift.price}`;
+      if (updated === 0) throw new BadRequestException('Not enough coins');
+      await tx.$executeRaw`
+        INSERT INTO gift_transactions (id, sender_id, receiver_id, room_id, gift_id, coins)
+        VALUES (${id}, ${senderId}, ${receiverId}, ${roomId}, ${giftId}, ${gift.price})`;
+      // 10 coins = 1 diamond = 10 points. The unique ref makes a second credit for the same gift impossible.
+      const ev = await tx.$executeRaw`
+        INSERT INTO diamond_events (id, user_id, kind, points, ref) VALUES (${id + ':d'}, ${receiverId}, 'GIFT', ${gift.price}, ${id})
+        ON CONFLICT DO NOTHING`;
+      if (ev === 1) {
+        await tx.$executeRaw`
+          INSERT INTO economy_diamonds (user_id, points) VALUES (${receiverId}, ${gift.price})
+          ON CONFLICT (user_id) DO UPDATE SET points = economy_diamonds.points + ${gift.price}, updated_at = now()`;
+      }
+    });
     return { id, gift, wallet: await this.me(senderId) };
   }
 
@@ -333,5 +350,58 @@ export class EconomyService implements OnModuleInit {
         };
       });
     return { period: period === 'total' || period === 'month' ? period : 'day', entries };
+  }
+
+  static readonly COINS_PER_DIAMOND_EXCHANGE = 5;
+
+  async diamonds(userId: string) {
+    this.ensureReady();
+    const r = await this.prisma.$queryRaw<{ points: bigint }[]>`SELECT points FROM economy_diamonds WHERE user_id = ${userId}`;
+    const points = Number(r[0]?.points ?? 0);
+    return {
+      diamonds: points / 10,
+      wholeDiamonds: Math.floor(points / 10),
+      coinsPerDiamond: EconomyService.COINS_PER_DIAMOND_EXCHANGE,
+      vipPrices: VIP_PLANS.map((p) => ({ tier: p.tier, months: p.months, diamonds: Math.ceil(p.priceCoins / EconomyService.COINS_PER_DIAMOND_EXCHANGE) })),
+    };
+  }
+
+  /** Whole diamonds only. 1 diamond = 5 coins. Atomic: the diamonds are removed and the coins added in one transaction. */
+  async exchangeToCoins(userId: string, diamonds: number) {
+    this.ensureReady();
+    const d = Math.floor(Number(diamonds));
+    if (!Number.isFinite(d) || d < 1 || d > 1_000_000) throw new BadRequestException('Invalid amount');
+    const points = d * 10;
+    const coins = d * EconomyService.COINS_PER_DIAMOND_EXCHANGE;
+    const evId = (await import('crypto')).randomUUID();
+    await this.prisma.$transaction(async (tx) => {
+      const n = await tx.$executeRaw`UPDATE economy_diamonds SET points = points - ${points}, updated_at = now() WHERE user_id = ${userId} AND points >= ${points}`;
+      if (n === 0) throw new BadRequestException('Not enough diamonds');
+      await tx.$executeRaw`
+        INSERT INTO economy_wallets (user_id, coins) VALUES (${userId}, ${coins})
+        ON CONFLICT (user_id) DO UPDATE SET coins = economy_wallets.coins + ${coins}, updated_at = now()`;
+      await tx.$executeRaw`INSERT INTO diamond_events (id, user_id, kind, points, ref) VALUES (${evId}, ${userId}, 'TO_COINS', ${-points}, NULL)`;
+    });
+    return { exchanged: d, coinsAdded: coins, wallet: await this.me(userId), ...(await this.diamonds(userId)) };
+  }
+
+  /** Buy VIP with diamonds at the coin price divided by 5. Diamonds are refunded if the VIP grant fails. */
+  async exchangeToVip(userId: string, tier: string) {
+    this.ensureReady();
+    const plan = VIP_PLANS.find((p) => p.tier === tier);
+    if (!plan) throw new BadRequestException('Unknown VIP plan');
+    const cost = Math.ceil(plan.priceCoins / EconomyService.COINS_PER_DIAMOND_EXCHANGE);
+    const points = cost * 10;
+    const evId = (await import('crypto')).randomUUID();
+    const n = await this.prisma.$executeRaw`UPDATE economy_diamonds SET points = points - ${points}, updated_at = now() WHERE user_id = ${userId} AND points >= ${points}`;
+    if (n === 0) throw new BadRequestException('Not enough diamonds');
+    try {
+      await this.store.grantVip(userId, plan.tier as never);
+      await this.prisma.$executeRaw`INSERT INTO diamond_events (id, user_id, kind, points, ref) VALUES (${evId}, ${userId}, 'TO_VIP', ${-points}, ${plan.tier})`;
+    } catch (e) {
+      await this.prisma.$executeRaw`UPDATE economy_diamonds SET points = points + ${points}, updated_at = now() WHERE user_id = ${userId}`;
+      throw e;
+    }
+    return { vipTier: plan.tier, diamondsSpent: cost, ...(await this.diamonds(userId)) };
   }
 }

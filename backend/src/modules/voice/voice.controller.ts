@@ -20,6 +20,11 @@ export class VoiceController {
     return this.voice.listRooms(live !== 'false', user.id);
   }
 
+  @Get('voice-feed/following')
+  followingFeed(@CurrentUser() user: AuthUser) {
+    return this.voice.followingFeed(user.id);
+  }
+
   @Get('voice-usage')
   usage(@CurrentUser() user: AuthUser) {
     return this.voice.usage(user.id);

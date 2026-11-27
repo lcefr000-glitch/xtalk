@@ -61,7 +61,7 @@ export class AdminXController {
       (SELECT count(*)::int FROM "Follow" WHERE "followingId"=$1) AS followers,
       (SELECT count(*)::int FROM "Follow" WHERE "followerId"=$1) AS following,
       (SELECT count(*)::int FROM "Report" WHERE "targetId"=$1) AS reports_against`);
-    const wallet = await one(`SELECT coins, total_spent FROM economy_wallets WHERE user_id=$1`);
+    const wallet = await one(`SELECT coins, total_spent, (SELECT COALESCE(points,0)::float/10 FROM economy_diamonds WHERE user_id=$1) AS diamonds FROM economy_wallets WHERE user_id=$1`);
     const sub = await this.prisma.subscription.findUnique({ where: { userId: id }, select: { plan: true, status: true, expiresAt: true } });
     const snap = await one(`SELECT deleted_at, restored_at, email, username FROM admin_deleted_accounts WHERE user_id=$1`);
     return { user: { ...u, hasPhoto }, counts, wallet, vip: sub, adminDeleteSnapshot: snap && !snap.restored_at ? snap : null };

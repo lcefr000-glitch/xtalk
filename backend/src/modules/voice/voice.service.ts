@@ -108,6 +108,7 @@ export class VoiceService implements OnModuleInit {
   async createRoom(hostId: string, dto: CreateRoomDto) {
     await this.assertRoomTime(hostId);
     const created = await this.createRoomRow(hostId, dto);
+    void this.notifyFollowers(hostId, created.id, dto.title).catch(() => undefined);
     await this.ensureMeta();
     if (this.metaReady) {
       try {
@@ -129,6 +130,44 @@ export class VoiceService implements OnModuleInit {
       },
       include: { participants: true },
     });
+  }
+
+  /** In-app notification for each follower who has room notifications on. Never blocks room creation. */
+  private async notifyFollowers(hostId: string, roomId: string, title: string) {
+    const host = await this.prisma.user.findUnique({ where: { id: hostId }, select: { username: true, profile: { select: { displayName: true } } } });
+    const name = host?.profile?.displayName || host?.username || 'Someone';
+    const followers = await this.prisma.follow.findMany({ where: { followingId: hostId }, select: { followerId: true }, take: 500 });
+    for (const f of followers) {
+      const settings = await this.prisma.userSettings.findUnique({ where: { userId: f.followerId }, select: { notifyRoomInvitations: true } });
+      if (settings && settings.notifyRoomInvitations === false) continue;
+      if (await this.safety.isBlockedEitherWay(hostId, f.followerId)) continue;
+      await this.prisma.notification.create({
+        data: { recipientId: f.followerId, actorId: hostId, type: 'ROOM_INVITATION', payload: { kind: 'room_started', roomId, title, hostName: name } },
+      }).catch(() => undefined);
+    }
+  }
+
+  /** Rooms opened by people the viewer follows in the last 48 hours (live first). */
+  async followingFeed(viewerId: string) {
+    const follows = await this.prisma.follow.findMany({ where: { followerId: viewerId }, select: { followingId: true }, take: 1000 });
+    const ids = follows.map((f) => f.followingId);
+    if (ids.length === 0) return [];
+    const rooms = await this.prisma.voiceRoom.findMany({
+      where: { hostId: { in: ids }, createdAt: { gt: new Date(Date.now() - 48 * 3600e3) } },
+      include: {
+        host: { select: { id: true, username: true, profile: { select: { displayName: true, photoUrl: true, country: true } } } },
+        language: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 40,
+    });
+    const meta = await this.metaMap(rooms.map((r) => r.id));
+    return rooms.map((r) => ({
+      id: r.id, title: r.title, isLive: r.isLive, createdAt: r.createdAt, closedAt: r.closedAt,
+      language: r.language ? { code: r.language.code, name: r.language.name } : null,
+      mode: meta.get(r.id)?.mode ?? 'chat',
+      host: { id: r.host.id, username: r.host.username, displayName: r.host.profile?.displayName ?? r.host.username, photoUrl: r.host.profile?.photoUrl ?? null, country: r.host.profile?.country ?? null },
+    }));
   }
 
   async listRooms(liveOnly = true, viewerId?: string) {
