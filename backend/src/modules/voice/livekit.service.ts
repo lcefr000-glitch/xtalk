@@ -58,6 +58,30 @@ export class LiveKitService {
     );
   }
 
+  /** Live stage: a viewer may publish microphone and camera while on stage. */
+  setStage(roomId: string, userId: string, onStage: boolean) {
+    return this.safe(() =>
+      this.client().updateParticipant(roomId, userId, undefined, {
+        canSubscribe: true,
+        canPublish: onStage,
+        canPublishSources: onStage ? [TrackSource.MICROPHONE, TrackSource.CAMERA] : [],
+        canPublishData: true,
+      }),
+    );
+  }
+
+  /** People currently connected to the room: identity is the user id. */
+  async participants(roomId: string): Promise<{ userId: string; name: string }[]> {
+    if (!this.configured) return [];
+    try {
+      const list = await this.client().listParticipants(roomId);
+      return list.map((p) => ({ userId: p.identity, name: p.name || '' }));
+    } catch (e) {
+      this.log.warn(`LiveKit list failed: ${(e as Error).message}`);
+      return [];
+    }
+  }
+
   /** Server-side mute of the user's microphone tracks. */
   mute(roomId: string, userId: string, muted: boolean) {
     return this.safe(async () => {

@@ -166,6 +166,7 @@ export class LiveService implements OnModuleInit {
     await this.prisma.$executeRaw`
       UPDATE live_streams SET status = 'ENDED', ended_at = now() WHERE id = ${id}`;
     await this.livekit.closeRoom(`live-${id}`);
+    this.invites.delete(id); this.stage.delete(id);
     return { success: true, status: 'ENDED' };
   }
 
@@ -174,6 +175,88 @@ export class LiveService implements OnModuleInit {
     const stream = await this.get(id);
     if (stream.host_id !== hostId) throw new ForbiddenException('Only the host can moderate the stream');
     await this.livekit.kick(`live-${id}`, targetUserId);
+    return { success: true };
+  }
+
+  /** Stage state is kept in memory (one server). It resets on a redeploy and when a stream ends. */
+  private readonly invites = new Map<string, Set<string>>();
+  private readonly stage = new Map<string, Set<string>>();
+
+  private async liveStream(id: string) {
+    const stream = await this.get(id);
+    if (stream.status !== 'LIVE') throw new NotFoundException('Stream has ended');
+    return stream;
+  }
+
+  async viewers(id: string, hostId: string) {
+    this.ensureReady();
+    const stream = await this.liveStream(id);
+    if (stream.host_id !== hostId) throw new ForbiddenException('Only the host can see the viewer list');
+    const people = (await this.livekit.participants(`live-${id}`)).filter((p) => p.userId !== hostId).slice(0, 100);
+    const onStage = this.stage.get(id) ?? new Set<string>();
+    const invited = this.invites.get(id) ?? new Set<string>();
+    return { results: people.map((p) => ({ ...p, onStage: onStage.has(p.userId), invited: invited.has(p.userId) })) };
+  }
+
+  async invite(id: string, hostId: string, targetUserId: string) {
+    this.ensureReady();
+    const stream = await this.liveStream(id);
+    if (stream.host_id !== hostId) throw new ForbiddenException('Only the host can invite');
+    if (targetUserId === hostId) throw new ForbiddenException('Not available');
+    if (await this.safety.isBlockedEitherWay(targetUserId, hostId)) throw new ForbiddenException('Not available');
+    const here = (await this.livekit.participants(`live-${id}`)).some((p) => p.userId === targetUserId);
+    if (!here) throw new NotFoundException('That person is not watching right now');
+    const set = this.invites.get(id) ?? new Set<string>();
+    if (set.size >= 50) throw new ForbiddenException('Too many open invites');
+    set.add(targetUserId);
+    this.invites.set(id, set);
+    return { success: true };
+  }
+
+  async stageState(id: string, userId: string) {
+    const stream = await this.liveStream(id);
+    const ids = [...(this.stage.get(id) ?? [])];
+    const profiles = await this.prisma.profile.findMany({
+      where: { userId: { in: [...ids, stream.host_id as string] } },
+      select: { userId: true, displayName: true, photoUrl: true },
+    });
+    const by = new Map(profiles.map((p) => [p.userId, p]));
+    const card = (uid: string) => ({ userId: uid, name: by.get(uid)?.displayName ?? '', photoUrl: by.get(uid)?.photoUrl ?? null });
+    return {
+      invited: this.invites.get(id)?.has(userId) === true,
+      isOnStage: ids.includes(userId),
+      host: card(stream.host_id as string),
+      onStage: ids.map(card),
+    };
+  }
+
+  async acceptInvite(id: string, userId: string) {
+    this.ensureReady();
+    await this.liveStream(id);
+    const inv = this.invites.get(id);
+    if (!inv?.has(userId)) throw new ForbiddenException('No invite');
+    const st = this.stage.get(id) ?? new Set<string>();
+    if (st.size >= 3) throw new ForbiddenException('The stage is full');
+    inv.delete(userId);
+    st.add(userId);
+    this.stage.set(id, st);
+    await this.livekit.setStage(`live-${id}`, userId, true);
+    return { success: true };
+  }
+
+  async declineInvite(id: string, userId: string) {
+    this.invites.get(id)?.delete(userId);
+    return { success: true };
+  }
+
+  /** The guest leaves, or the host removes them. */
+  async leaveStage(id: string, actorId: string, targetUserId?: string) {
+    this.ensureReady();
+    const stream = await this.get(id);
+    const target = targetUserId && stream.host_id === actorId ? targetUserId : actorId;
+    this.stage.get(id)?.delete(target);
+    this.invites.get(id)?.delete(target);
+    await this.livekit.setStage(`live-${id}`, target, false);
     return { success: true };
   }
 

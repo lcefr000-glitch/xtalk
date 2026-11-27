@@ -13,6 +13,10 @@ class CreateStreamDto {
   @IsOptional() @IsString() @Length(2, 10) languageCode?: string;
 }
 
+class StageTargetDto {
+  @IsOptional() @IsUUID() userId?: string;
+}
+
 class KickDto {
   @IsUUID() userId!: string;
 }
@@ -56,6 +60,36 @@ export class LiveController {
   @Post(':id/kick')
   kick(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: KickDto) {
     return this.live.kick(id, user.id, dto.userId);
+  }
+
+  @Get(':id/viewers')
+  viewers(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.live.viewers(id, user.id);
+  }
+
+  @Post(':id/invite')
+  invite(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: KickDto) {
+    return this.live.invite(id, user.id, dto.userId);
+  }
+
+  @Get(':id/stage')
+  stage(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.live.stageState(id, user.id);
+  }
+
+  @Post(':id/stage/accept')
+  accept(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.live.acceptInvite(id, user.id);
+  }
+
+  @Post(':id/stage/decline')
+  decline(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.live.declineInvite(id, user.id);
+  }
+
+  @Post(':id/stage/leave')
+  leaveStage(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: StageTargetDto) {
+    return this.live.leaveStage(id, user.id, dto?.userId);
   }
 
   @Get(':id/messages')
