@@ -3,7 +3,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { SafetyService } from '../safety/safety.service';
 import { StoreService, VIP_PLANS } from '../store/store.service';
 
-export interface GiftDef { id: string; name: string; nameAr: string; emoji: string; price: number; fx: string }
+export interface GiftDef { id: string; name: string; nameAr: string; emoji: string; price: number; fx: string; minLevel?: number }
 
 /** Gift catalog. Prices are in coins. fx picks the room animation style on the app. */
 export const GIFTS: GiftDef[] = [
@@ -72,14 +72,38 @@ export const GIFTS: GiftDef[] = [
   { id: 'galaxy', name: 'Galaxy', nameAr: 'مجرة', emoji: '🌌', price: 4500, fx: 'spiral' },
   { id: 'yacht', name: 'Yacht', nameAr: 'يخت', emoji: '🛥️', price: 6500, fx: 'wave' },
   { id: 'planet', name: 'Planet', nameAr: 'كوكب', emoji: '🪐', price: 2500, fx: 'spiral' },
+  { id: 'comet', name: 'Comet', nameAr: 'مذنب', emoji: '☄️', price: 30, fx: 'fly', minLevel: 2 },
+  { id: 'sky_lantern', name: 'Sky Lantern', nameAr: 'فانوس السماء', emoji: '🏮', price: 200, fx: 'float', minLevel: 4 },
+  { id: 'crystal_rose', name: 'Crystal Rose', nameAr: 'وردة كريستال', emoji: '🌹', price: 600, fx: 'sparkle', minLevel: 6 },
+  { id: 'thunder_wolf', name: 'Thunder Wolf', nameAr: 'ذئب الرعد', emoji: '🐺', price: 1500, fx: 'bounce', minLevel: 8 },
+  { id: 'neon_city', name: 'Neon City', nameAr: 'مدينة النيون', emoji: '🌃', price: 3500, fx: 'wave', minLevel: 10 },
+  { id: 'golden_carriage', name: 'Golden Carriage', nameAr: 'عربة ذهبية', emoji: '🎠', price: 8000, fx: 'fly', minLevel: 15 },
+  { id: 'aurora', name: 'Aurora', nameAr: 'شفق قطبي', emoji: '🌌', price: 15000, fx: 'spiral', minLevel: 20 },
+  { id: 'celestial_gate', name: 'Celestial Gate', nameAr: 'بوابة السماء', emoji: '⛩️', price: 40000, fx: 'zoom', minLevel: 30 },
 ];
 
-/** Level grows with the total coins spent: level 1 at 0, 2 at 50, 3 at 200, 4 at 450 ... (50 * (n-1)^2). */
+/**
+ * Gift level. Total coins spent decides the level. Going from level n to n+1 costs 10 * 2^(n-1) coins
+ * (10, 20, 40, 80 ...), doubling until the step reaches STEP_CAP, then every further level costs STEP_CAP,
+ * up to MAX_LEVEL. All three numbers are server side.
+ */
+export const LEVEL_BASE_STEP = 10;
+export const LEVEL_DOUBLING_UNTIL = 12;
+export const MAX_LEVEL = 50;
+const STEP_CAP = LEVEL_BASE_STEP * 2 ** (LEVEL_DOUBLING_UNTIL - 1);
+const THRESHOLDS: number[] = (() => {
+  const t = [0]; // t[n-1] = coins needed for level n
+  for (let n = 1; n < MAX_LEVEL; n++) t.push(t[n - 1] + Math.min(STEP_CAP, LEVEL_BASE_STEP * 2 ** (n - 1)));
+  return t;
+})();
 export function levelFor(totalSpent: number): number {
-  return Math.floor(Math.sqrt(Math.max(0, totalSpent) / 50)) + 1;
+  const v = Math.max(0, totalSpent);
+  let lv = 1;
+  while (lv < MAX_LEVEL && v >= THRESHOLDS[lv]) lv++;
+  return lv;
 }
 export function spentForLevel(level: number): number {
-  return 50 * (level - 1) * (level - 1);
+  return THRESHOLDS[Math.min(Math.max(level, 1), MAX_LEVEL) - 1];
 }
 
 const TEST_GRANT = 500;
@@ -147,6 +171,16 @@ export class EconomyService implements OnModuleInit {
     return { coins, totalSpent, level, diamonds, nextLevelAt: spentForLevel(level + 1), levelStartsAt: spentForLevel(level) };
   }
 
+  /** Timeline for the gift level screen: every level with its threshold and what it unlocks. */
+  async levelInfo(userId: string) {
+    const m = await this.me(userId);
+    const levels = THRESHOLDS.map((at, i) => ({
+      level: i + 1, coinsNeeded: at,
+      gifts: GIFTS.filter((g) => (g.minLevel ?? 1) === i + 1).map((g) => g.id),
+    }));
+    return { me: m, maxLevel: MAX_LEVEL, levels };
+  }
+
   async levelOf(userId: string) {
     this.ensureReady();
     const rows = await this.prisma.$queryRaw<{ total_spent: number }[]>`
@@ -183,6 +217,10 @@ export class EconomyService implements OnModuleInit {
     this.ensureReady();
     const gift = GIFTS.find((g) => g.id === giftId);
     if (!gift) throw new BadRequestException('Unknown gift');
+    if (gift.minLevel && gift.minLevel > 1) {
+      const w = await this.prisma.$queryRaw<{ total_spent: number }[]>`SELECT total_spent FROM economy_wallets WHERE user_id = ${senderId}`;
+      if (levelFor(w[0]?.total_spent ?? 0) < gift.minLevel) throw new ForbiddenException(`This gift unlocks at level ${gift.minLevel}`);
+    }
     if (receiverId === senderId) throw new BadRequestException('You cannot gift yourself');
     const room = await this.prisma.voiceRoom.findUnique({ where: { id: roomId }, select: { id: true, isLive: true } });
     if (!room || !room.isLive) throw new BadRequestException('Room is not live');

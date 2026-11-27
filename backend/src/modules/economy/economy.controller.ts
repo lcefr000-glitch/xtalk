@@ -72,6 +72,11 @@ export class EconomyController {
     return this.economy.me(user.id);
   }
 
+  @Get('level-info')
+  levelInfo(@CurrentUser() user: AuthUser) {
+    return this.economy.levelInfo(user.id);
+  }
+
   @Get('gifts')
   gifts() {
     return this.economy.gifts();
