@@ -298,7 +298,8 @@ export class VoiceService implements OnModuleInit {
     if (existing) {
       return this.prisma.voiceRoomParticipant.update({
         where: { id: existing.id },
-        data: { leftAt: null },
+        // Coming back always starts as a listener: a seat has to be requested (or offered) again.
+        data: { leftAt: null, ...(existing.role === 'HOST' || existing.leftAt === null ? {} : { role: 'LISTENER' }) },
       });
     }
     return this.prisma.voiceRoomParticipant.create({

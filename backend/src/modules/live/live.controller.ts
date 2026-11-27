@@ -11,6 +11,8 @@ class CreateStreamDto {
   @IsOptional() @IsString() @MaxLength(1000) description?: string;
   @IsOptional() @IsString() @MaxLength(60) category?: string;
   @IsOptional() @IsString() @Length(2, 10) languageCode?: string;
+  // Older app builds send the language under this name.
+  @IsOptional() @IsString() @MaxLength(10) language?: string;
 }
 
 class StageTargetDto {
@@ -29,7 +31,9 @@ export class LiveController {
 
   @Post()
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateStreamDto) {
-    return this.live.create(user.id, dto);
+    const { language, ...rest } = dto;
+    const lang = (rest.languageCode ?? language ?? '').trim();
+    return this.live.create(user.id, { ...rest, languageCode: lang.length >= 2 ? lang : undefined });
   }
 
   @Get()

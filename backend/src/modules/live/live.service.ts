@@ -148,6 +148,9 @@ export class LiveService implements OnModuleInit {
     if (stream.status !== 'LIVE') throw new NotFoundException('Stream has ended');
     if (stream.host_id === userId) return this.hostView(id, userId);
     if (await this.safety.isBlockedEitherWay(userId, stream.host_id as string)) throw new ForbiddenException('Not available');
+    // Re-entering starts as a plain viewer: the stage has to be offered again.
+    this.stage.get(id)?.delete(userId);
+    this.invites.get(id)?.delete(userId);
     const profile = await this.prisma.profile.findUnique({ where: { userId }, select: { displayName: true } });
     const media = await this.livekit.createToken({
       roomId: `live-${id}`,
