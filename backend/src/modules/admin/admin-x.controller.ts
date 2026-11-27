@@ -51,7 +51,8 @@ export class AdminXController {
   async detail(@Req() req: any, @Param('id', ParseUUIDPipe) id: string) {
     owner(req); await this.ensure();
     const u = await this.prisma.user.findUnique({ where: { id }, select: { id: true, email: true, username: true, dateOfBirth: true, isMinor: true, emailVerified: true, status: true, createdAt: true, lastActiveAt: true, deletedAt: true,
-      profile: { select: { displayName: true, bio: true, country: true, photoUrl: true, interfaceLanguage: true } } } });
+      profile: { select: { displayName: true, bio: true, country: true, interfaceLanguage: true } } } });
+    const hasPhoto = (await this.prisma.profile.count({ where: { userId: id, photoUrl: { not: null } } })) > 0;
     if (!u) throw new NotFoundException('User not found');
     const one = async (sql: string) => { try { return (await this.prisma.$queryRawUnsafe<any[]>(sql, id))[0] ?? null; } catch { return null; } };
     const counts = await one(`SELECT
@@ -63,7 +64,7 @@ export class AdminXController {
     const wallet = await one(`SELECT coins, total_spent FROM economy_wallets WHERE user_id=$1`);
     const sub = await this.prisma.subscription.findUnique({ where: { userId: id }, select: { plan: true, status: true, expiresAt: true } });
     const snap = await one(`SELECT deleted_at, restored_at, email, username FROM admin_deleted_accounts WHERE user_id=$1`);
-    return { user: u, counts, wallet, vip: sub, adminDeleteSnapshot: snap && !snap.restored_at ? snap : null };
+    return { user: { ...u, hasPhoto }, counts, wallet, vip: sub, adminDeleteSnapshot: snap && !snap.restored_at ? snap : null };
   }
 
   /** Reversible delete: saves email/username/password hash, frees them, hides posts. Restore brings everything back. */
@@ -77,14 +78,14 @@ export class AdminXController {
     const now = new Date();
     await this.prisma.$transaction([
       this.prisma.$executeRaw`INSERT INTO admin_deleted_accounts (user_id, email, username, password_hash, display_name, email_verified, prev_status, deleted_by)
-        VALUES (${id}, ${u.email}, ${u.username}, ${u.passwordHash}, ${u.profile?.displayName ?? null}, ${u.emailVerified}, ${u.status}, ${req.admin?.sub ?? null})
+        VALUES (${id}, ${u.email}, ${u.username}, ${u.passwordHash}, ${u.profile?.displayName ?? null}, ${u.emailVerified}, ${u.status}, ${req.admin?.id ?? null})
         ON CONFLICT (user_id) DO UPDATE SET email=EXCLUDED.email, username=EXCLUDED.username, password_hash=EXCLUDED.password_hash, display_name=EXCLUDED.display_name,
           email_verified=EXCLUDED.email_verified, prev_status=EXCLUDED.prev_status, deleted_at=now(), deleted_by=EXCLUDED.deleted_by, restored_at=NULL`,
       this.prisma.user.update({ where: { id }, data: { status: 'DELETED', deletedAt: now, email: `deleted-${tag}@deleted.invalid`, username: `deleted_${tag}`, passwordHash: require('crypto').randomBytes(32).toString('hex') } }),
       this.prisma.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: now } }),
       this.prisma.$executeRaw`UPDATE "Post" SET "deletedAt" = ${now} WHERE "authorId" = ${id} AND "deletedAt" IS NULL`,
     ]);
-    await this.audit(req.admin?.sub, 'ADMIN_DELETE', id);
+    await this.audit(req.admin?.id, 'ADMIN_DELETE', id);
     return { deleted: true, restorable: true };
   }
 
@@ -103,7 +104,7 @@ export class AdminXController {
       this.prisma.$executeRaw`UPDATE "Post" SET "deletedAt" = NULL WHERE "authorId" = ${id} AND "deletedAt" >= ${new Date(delAt.getTime() - 1000)} AND "deletedAt" <= ${new Date(delAt.getTime() + 5000)}`,
       this.prisma.$executeRaw`UPDATE admin_deleted_accounts SET restored_at = now() WHERE user_id = ${id}`,
     ]);
-    await this.audit(req.admin?.sub, 'ADMIN_RESTORE', id);
+    await this.audit(req.admin?.id, 'ADMIN_RESTORE', id);
     return { restored: true };
   }
 
@@ -119,7 +120,72 @@ export class AdminXController {
       this.prisma.user.update({ where: { id }, data: { passwordHash: await argon2.hash(pw) } }),
       this.prisma.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } }),
     ]);
-    await this.audit(req.admin?.sub, 'ADMIN_RESET_PASSWORD', id);
+    await this.audit(req.admin?.id, 'ADMIN_RESET_PASSWORD', id);
+    return { ok: true };
+  }
+
+  @Get('rooms')
+  async rooms(@Req() req: any, @Query('live') live?: string) {
+    owner(req);
+    return this.prisma.voiceRoom.findMany({
+      where: live === 'false' ? {} : { isLive: true }, orderBy: { createdAt: 'desc' }, take: 50,
+      select: { id: true, title: true, isLive: true, createdAt: true, closedAt: true, host: { select: { id: true, username: true } }, _count: { select: { participants: true } } },
+    });
+  }
+
+  @Post('rooms/:id/close')
+  async closeRoom(@Req() req: any, @Param('id', ParseUUIDPipe) id: string) {
+    owner(req);
+    const r = await this.prisma.voiceRoom.updateMany({ where: { id, isLive: true }, data: { isLive: false, closedAt: new Date() } });
+    await this.audit(req.admin?.id, 'ROOM_CLOSE', id);
+    return { closed: r.count };
+  }
+
+  @Get('posts')
+  async posts(@Req() req: any, @Query('search') search?: string) {
+    owner(req);
+    return this.prisma.post.findMany({
+      where: { deletedAt: null, ...(search ? { body: { contains: search, mode: 'insensitive' as const } } : {}) },
+      orderBy: { createdAt: 'desc' }, take: 40,
+      select: { id: true, body: true, createdAt: true, author: { select: { id: true, username: true } }, _count: { select: { comments: true, likes: true } } },
+    });
+  }
+
+  @Post('posts/:id/remove')
+  async removePost(@Req() req: any, @Param('id', ParseUUIDPipe) id: string) {
+    owner(req);
+    const r = await this.prisma.post.updateMany({ where: { id, deletedAt: null }, data: { deletedAt: new Date() } });
+    await this.audit(req.admin?.id, 'POST_REMOVE', id);
+    return { removed: r.count };
+  }
+
+  /** Manual grant. Coins are added to the wallet (max 1,000,000 per call). */
+  @Post('users/:id/grant-coins')
+  async grantCoins(@Req() req: any, @Param('id', ParseUUIDPipe) id: string, @Body() b: { coins?: number }) {
+    owner(req);
+    const c = Number(b?.coins);
+    if (!Number.isInteger(c) || c < 1 || c > 1_000_000) throw new BadRequestException('coins must be 1 to 1,000,000');
+    const u = await this.prisma.user.findUnique({ where: { id }, select: { status: true } });
+    if (!u || u.status === 'DELETED') throw new NotFoundException('User not found');
+    await this.prisma.$executeRaw`INSERT INTO economy_wallets (user_id, coins) VALUES (${id}, ${c})
+      ON CONFLICT (user_id) DO UPDATE SET coins = economy_wallets.coins + ${c}, updated_at = now()`;
+    await this.audit(req.admin?.id, 'GRANT_COINS', `${id} +${c}`);
+    return { ok: true };
+  }
+
+  @Post('users/:id/grant-vip')
+  async grantVip(@Req() req: any, @Param('id', ParseUUIDPipe) id: string, @Body() b: { tier?: string }) {
+    owner(req);
+    const months: Record<string, number | null> = { '1m': 1, '3m': 3, '1y': 12, life: null };
+    if (!b?.tier || !(b.tier in months)) throw new BadRequestException('tier must be 1m, 3m, 1y or life');
+    const u = await this.prisma.user.findUnique({ where: { id }, select: { status: true } });
+    if (!u || u.status === 'DELETED') throw new NotFoundException('User not found');
+    const m = months[b.tier];
+    let exp: Date | null = null;
+    if (m !== null) { exp = new Date(); exp.setMonth(exp.getMonth() + m); }
+    await this.prisma.subscription.upsert({ where: { userId: id }, create: { userId: id, plan: 'PREMIUM', status: 'ACTIVE', expiresAt: exp }, update: { plan: 'PREMIUM', status: 'ACTIVE', expiresAt: exp } });
+    await this.prisma.$executeRaw`INSERT INTO vip_meta (user_id, tier) VALUES (${id}, ${b.tier}) ON CONFLICT (user_id) DO UPDATE SET tier = ${b.tier}, started_at = now(), updated_at = now()`;
+    await this.audit(req.admin?.id, 'GRANT_VIP', `${id} ${b.tier}`);
     return { ok: true };
   }
 }
