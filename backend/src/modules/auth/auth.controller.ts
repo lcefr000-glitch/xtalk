@@ -76,6 +76,23 @@ export class AuthController {
     return this.auth.logoutAll(user.id);
   }
 
+  @ApiBearerAuth()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @HttpCode(200)
+  @Post('email-code/send')
+  sendEmailCode(@CurrentUser() user: AuthUser) {
+    return this.auth.sendAccountCode(user.id);
+  }
+
+  @ApiBearerAuth()
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @HttpCode(200)
+  @Post('email-code/verify')
+  verifyEmailCode(@CurrentUser() user: AuthUser, @Body() body: { code: string }) {
+    if (!body || typeof body.code !== 'string' || !/^\d{6}$/.test(body.code.trim())) throw new BadRequestException('Enter the 6-digit code');
+    return this.auth.verifyAccountCode(user.id, body.code);
+  }
+
   @Public()
   @HttpCode(200)
   @Post('verify-email')

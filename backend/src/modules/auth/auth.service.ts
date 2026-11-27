@@ -149,6 +149,40 @@ export class AuthService {
     this.signupCodes.delete(email);
   }
 
+  // ---------- Email code for existing accounts (verify once) ----------
+  private accountCodes = new Map<string, { hash: string; exp: number; tries: number; last: number }>();
+
+  /** Sends a 6-digit code to the signed-in user's own email. */
+  async sendAccountCode(userId: string) {
+    if (!smtpConfigured()) throw new ServiceUnavailableException('Email is not available right now');
+    const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true, emailVerified: true } });
+    if (!u) throw new UnauthorizedException('Account is not active');
+    if (u.emailVerified) return { success: true, alreadyVerified: true };
+    const cur = this.accountCodes.get(userId);
+    if (cur && Date.now() - cur.last < 45_000) throw new BadRequestException('Wait a little before asking for another code');
+    const code = String(require('crypto').randomInt(0, 1_000_000)).padStart(6, '0');
+    this.accountCodes.set(userId, { hash: sha256Hex(userId + ':' + code), exp: Date.now() + 10 * 60_000, tries: 0, last: Date.now() });
+    try {
+      await sendMail(u.email, 'Your X Talk verification code', `Your X Talk verification code is ${code}.\n\nIt expires in 10 minutes. If you did not ask for this, ignore this email.`);
+    } catch (e) {
+      this.accountCodes.delete(userId);
+      const er = e as any; this.logger.error('account mail failed: ' + (er?.message || er?.code || String(er)));
+      throw new ServiceUnavailableException('Could not send the email right now. Try again in a minute.');
+    }
+    return { success: true };
+  }
+
+  async verifyAccountCode(userId: string, code: string) {
+    const rec = this.accountCodes.get(userId);
+    if (!code || !rec || rec.exp < Date.now()) throw new BadRequestException('Enter the code we emailed you (it may have expired)');
+    rec.tries++;
+    if (rec.tries > 5) { this.accountCodes.delete(userId); throw new BadRequestException('Too many wrong codes. Ask for a new one.'); }
+    if (rec.hash !== sha256Hex(userId + ':' + String(code).trim())) throw new BadRequestException('Wrong code');
+    this.accountCodes.delete(userId);
+    await this.prisma.user.update({ where: { id: userId }, data: { emailVerified: true } });
+    return { success: true };
+  }
+
   // ---------- Login / session ----------
 
   private readonly fails = new Map<string, { n: number; last: number; until: number }>();
