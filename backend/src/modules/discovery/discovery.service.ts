@@ -22,6 +22,24 @@ export function matchScore(viewer: any, u: any): number {
   return Math.min(100, score);
 }
 
+/** Reason codes behind matchScore (teach:/learn:/interests:/active); the app words them. */
+export function matchReasons(viewer: any, u: any): string[] {
+  const vl = viewer.userLanguages ?? [];
+  const ul = u.userLanguages ?? [];
+  const vNative = vl.filter((l: any) => l.type === 'NATIVE').map((l: any) => l.languageCode);
+  const vLearn = vl.filter((l: any) => l.type === 'LEARNING').map((l: any) => l.languageCode);
+  const out: string[] = [];
+  const teach = ul.filter((l: any) => l.type === 'NATIVE' && vLearn.includes(l.languageCode)).map((l: any) => String(l.languageCode).toUpperCase());
+  const learn = ul.filter((l: any) => l.type === 'LEARNING' && vNative.includes(l.languageCode)).map((l: any) => String(l.languageCode).toUpperCase());
+  if (teach.length) out.push('teach:' + teach.join(', '));
+  if (learn.length) out.push('learn:' + learn.join(', '));
+  const mine: string[] = viewer.profile?.interests ?? viewer.interests ?? [];
+  const shared = (u.profile?.interests ?? []).filter((i: string) => mine.includes(i));
+  if (shared.length) out.push('interests:' + shared.slice(0, 3).join(', '));
+  if (u.lastActiveAt && Date.now() - new Date(u.lastActiveAt).getTime() < 24 * 3600_000) out.push('active');
+  return out;
+}
+
 @Injectable()
 export class DiscoveryService {
   constructor(private readonly prisma: PrismaService, private readonly safety: SafetyService, private readonly privacy: PrivacyService) {}
@@ -83,7 +101,7 @@ export class DiscoveryService {
         take: byMatch ? 200 : limit,
       }),
     ]);
-    let results = users.map((u) => ({ ...this.toPartner(u), matchScore: matchScore(viewer, u) }));
+    let results = users.map((u) => ({ ...this.toPartner(u), matchScore: matchScore(viewer, u), matchReasons: matchReasons(viewer, u) }));
     if (byMatch) {
       results.sort((a, b) => b.matchScore - a.matchScore);
       results = results.slice((page - 1) * limit, page * limit);
@@ -122,7 +140,7 @@ export class DiscoveryService {
       orderBy: { lastActiveAt: 'desc' },
       take: limit,
     });
-    const results = users.map((u) => ({ ...this.toPartner(u), matchScore: matchScore(viewer as any, u) }));
+    const results = users.map((u) => ({ ...this.toPartner(u), matchScore: matchScore(viewer as any, u), matchReasons: matchReasons(viewer as any, u) }));
     results.sort((a, b) => b.matchScore - a.matchScore);
     return { results };
   }
