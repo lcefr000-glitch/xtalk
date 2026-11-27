@@ -134,7 +134,7 @@ export class AuthService {
       await sendMail(email, 'Your X Talk verification code', `Your X Talk verification code is ${code}.\n\nIt expires in 10 minutes. If you did not try to sign up, ignore this email.`);
     } catch (e) {
       this.signupCodes.delete(email);
-      this.logger.error('signup mail failed: ' + (e as Error).message);
+      const er = e as any; this.logger.error('signup mail failed: ' + (er?.message || er?.code || er?.errors?.map?.((x: any) => x.code).join(',') || String(er)));
       throw new ServiceUnavailableException('Could not send the email right now. Try again in a minute.');
     }
     return { required: true };
