@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, OnModuleInit, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
@@ -198,6 +198,31 @@ export class AdminService implements OnModuleInit {
       estimate: { coinsLeft: granted - spent, totalSpent: spent },
       note: 'coinsLeft = coin codes redeemed minus gifts sent. Test grants or other credits are not visible and would make the real balance higher.',
     };
+  }
+
+  /** Restores an account that deleteMe anonymised. Only DELETED users. Password stays unusable until the owner signs in with Google or sets one. */
+  async restoreDeleted(userId: string, b: { email: string; username: string; displayName: string; totalSpent: number; coins: number; vipLifetime?: boolean }) {
+    const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, status: true } });
+    if (!u) throw new NotFoundException('User not found');
+    if (u.status !== 'DELETED') throw new BadRequestException('Only deleted accounts can be restored');
+    const email = b.email.trim().toLowerCase();
+    const username = b.username.trim().toLowerCase();
+    if (!/^[a-z0-9_.]{3,30}$/.test(username) || !/^[^@\s]+@[^@\s]+$/.test(email)) throw new BadRequestException('Bad email or username');
+    if (!Number.isInteger(b.totalSpent) || !Number.isInteger(b.coins) || b.totalSpent < 0 || b.coins < 0) throw new BadRequestException('Bad numbers');
+    const clash = await this.prisma.user.findFirst({ where: { id: { not: userId }, OR: [{ email }, { username }] }, select: { id: true } });
+    if (clash) throw new BadRequestException('Email or username already used by another account');
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: userId }, data: { email, username, status: 'ACTIVE', deletedAt: null, emailVerified: true } }),
+      this.prisma.profile.updateMany({ where: { userId }, data: { displayName: b.displayName, profileIsPublic: true } }),
+      this.prisma.$executeRaw`INSERT INTO economy_wallets (user_id, coins, total_spent) VALUES (${userId}, ${b.coins}, ${b.totalSpent})
+        ON CONFLICT (user_id) DO UPDATE SET coins = ${b.coins}, total_spent = ${b.totalSpent}, updated_at = now()`,
+      ...(b.vipLifetime ? [
+        this.prisma.subscription.upsert({ where: { userId }, create: { userId, plan: 'PREMIUM', status: 'ACTIVE', expiresAt: null }, update: { plan: 'PREMIUM', status: 'ACTIVE', expiresAt: null } }),
+        this.prisma.$executeRaw`INSERT INTO vip_meta (user_id, tier) VALUES (${userId}, 'life') ON CONFLICT (user_id) DO UPDATE SET tier = 'life', updated_at = now()`,
+      ] : []),
+    ]);
+    this.log.warn(`Admin restored deleted account ${userId}`);
+    return { restored: true, userId };
   }
 
   auditLog(page = 1, limit = 30) {

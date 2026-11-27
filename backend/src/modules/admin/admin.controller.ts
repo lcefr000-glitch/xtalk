@@ -88,6 +88,13 @@ export class AdminController {
 
   @ApiBearerAuth()
   @UseGuards(AdminGuard)
+  @Post('users/:id/restore')
+  restore(@Param('id', ParseUUIDPipe) id: string, @Body() body: any) {
+    return this.admin.restoreDeleted(id, body);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(AdminGuard)
   @Get('audit-log')
   audit(@Query('page') page?: string, @Query('limit') limit?: string) {
     return this.admin.auditLog(page ? parseInt(page, 10) : 1, limit ? parseInt(limit, 10) : 30);
