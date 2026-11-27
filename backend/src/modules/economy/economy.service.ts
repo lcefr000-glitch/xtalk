@@ -272,7 +272,7 @@ export class EconomyService implements OnModuleInit {
     const vip = new Map(subs.map((x) => [x.userId, x.expiresAt === null ? 'LIFETIME' : 'TIMED']));
     const entries = cand
       .filter((r) => byId.has(r.uid))
-      .slice(0, 50)
+      .slice(0, 30)
       .map((r, i) => {
         const u = byId.get(r.uid)!;
         return {
@@ -304,7 +304,7 @@ export class EconomyService implements OnModuleInit {
     const raw = await this.prisma.$queryRaw<{ uid: string; amt: number }[]>`
       SELECT sender_id AS uid, SUM(coins)::int AS amt FROM gift_transactions
       WHERE room_id = ${roomId} AND created_at > ${since}
-      GROUP BY sender_id ORDER BY amt DESC, sender_id LIMIT 50`;
+      GROUP BY sender_id ORDER BY amt DESC, sender_id LIMIT 30`;
     const ids = raw.map((r) => r.uid);
     const users = ids.length
       ? await this.prisma.user.findMany({
