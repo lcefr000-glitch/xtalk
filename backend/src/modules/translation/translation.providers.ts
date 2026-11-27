@@ -24,8 +24,10 @@ export class LibreTranslateProvider implements TranslationProvider {
   }
 
   async translate(text: string, source: string | undefined, target: string): Promise<TranslationResult> {
+    const gkey = process.env.TRANSLATE_GOOGLE_KEY;
+    if (gkey) return this.google(text, source, target, gkey);
     const base = process.env.TRANSLATE_BASE_URL;
-    if (!base) throw new ServiceUnavailableException('Translation provider not configured (set TRANSLATE_BASE_URL)');
+    if (!base) return this.free(text, source, target);
     const res = await fetch(`${base}/translate`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -41,6 +43,47 @@ export class LibreTranslateProvider implements TranslationProvider {
       detectedSource: data.detectedLanguage?.language ?? source ?? 'auto',
       provider: this.name,
     };
+  }
+
+  /** Paid, higher quality: Cloud Translation Basic (v2). Used when TRANSLATE_GOOGLE_KEY is set. */
+  private async google(text: string, source: string | undefined, target: string, key: string): Promise<TranslationResult> {
+    const res = await fetch(`https://translation.googleapis.com/language/translate/v2?key=${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ q: text, target, format: 'text', ...(source ? { source } : {}) }),
+    });
+    if (!res.ok) throw new ServiceUnavailableException(`Translation provider error (HTTP ${res.status})`);
+    const data = (await res.json()) as { data?: { translations?: { translatedText: string; detectedSourceLanguage?: string }[] } };
+    const t = data.data?.translations?.[0];
+    if (!t) throw new ServiceUnavailableException('Translation failed');
+    return { translatedText: t.translatedText, detectedSource: t.detectedSourceLanguage ?? source ?? 'auto', provider: 'cloud' };
+  }
+
+  /** Free fallback with no setup (daily quota applies). Text is sent in chunks of at most 450 bytes. */
+  private async free(text: string, source: string | undefined, target: string): Promise<TranslationResult> {
+    const src = (source && source !== 'auto' ? source : detectLanguage(text) === 'en' ? 'Autodetect' : detectLanguage(text)).toString();
+    const chunks: string[] = [];
+    let cur = '';
+    for (const part of text.split(/(?<=[.!?\u061F\n])\s*/)) {
+      for (let piece = part; piece.length > 0; ) {
+        let take = piece;
+        while (Buffer.byteLength(take) > 450) take = take.slice(0, Math.floor(take.length * 0.8));
+        piece = piece.slice(take.length);
+        if (Buffer.byteLength(cur + ' ' + take) > 450 && cur) { chunks.push(cur); cur = take; } else cur = cur ? cur + ' ' + take : take;
+      }
+    }
+    if (cur) chunks.push(cur);
+    const out: string[] = [];
+    for (const c of chunks.slice(0, 8)) {
+      const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(c)}&langpair=${encodeURIComponent(src + '|' + target)}&de=${encodeURIComponent(process.env.TRANSLATE_CONTACT_EMAIL ?? 'sprout.x-talk@gmail.com')}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new ServiceUnavailableException('Translation is busy, try again later');
+      const data = (await res.json()) as { responseData?: { translatedText?: string }; responseStatus?: number | string };
+      const t = data.responseData?.translatedText;
+      if (!t || String(data.responseStatus) !== '200' || /MYMEMORY WARNING|INVALID/i.test(t)) throw new ServiceUnavailableException('Translation limit reached for today, try again later');
+      out.push(t);
+    }
+    return { translatedText: out.join(' '), detectedSource: src === 'Autodetect' ? 'auto' : src, provider: 'free' };
   }
 }
 
