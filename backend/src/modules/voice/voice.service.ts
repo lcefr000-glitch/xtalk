@@ -407,7 +407,7 @@ export class VoiceService implements OnModuleInit {
     if (!target) throw new ForbiddenException('That person is not in the room');
     if (target.role !== 'LISTENER') return { success: true, role: target.role };
     const speakers = room.participants.filter((p) => p.role === 'HOST' || p.role === 'SPEAKER').length;
-    if (speakers >= 8) throw new ForbiddenException('All seats are taken');
+    if (speakers >= 10) throw new ForbiddenException('All seats are taken');
     const set = this.stageInvites.get(roomId) ?? new Set<string>();
     set.add(userId);
     this.stageInvites.set(roomId, set);
@@ -427,7 +427,7 @@ export class VoiceService implements OnModuleInit {
     const me = room.participants.find((p) => p.userId === userId);
     if (!me) throw new ForbiddenException('Join the room first');
     const speakers = room.participants.filter((p) => p.role === 'HOST' || p.role === 'SPEAKER').length;
-    if (speakers >= 8) throw new ForbiddenException('All seats are taken');
+    if (speakers >= 10) throw new ForbiddenException('All seats are taken');
     set.delete(userId);
     this.stageRequests.get(roomId)?.delete(userId);
     this.stageInvites.get(roomId)?.delete(userId);
@@ -446,7 +446,7 @@ export class VoiceService implements OnModuleInit {
     if (userId === room.hostId) throw new ForbiddenException('The host keeps a seat');
     if (role === 'SPEAKER') {
       const speakers = room.participants.filter((p) => p.role === 'HOST' || p.role === 'SPEAKER').length;
-      if (speakers >= 8) throw new ForbiddenException('All seats are taken');
+      if (speakers >= 10) throw new ForbiddenException('All seats are taken');
     }
     await this.prisma.voiceRoomParticipant.updateMany({
       where: { roomId, userId, leftAt: null },
