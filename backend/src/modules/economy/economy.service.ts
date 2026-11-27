@@ -140,6 +140,12 @@ export class EconomyService implements OnModuleInit {
         `UPDATE economy_wallets SET gf_level = LEAST(${MAX_LEVEL}, floor(sqrt(total_spent / 50.0))::int + 1) WHERE gf_level IS NULL AND total_spent > 0`,
       );
       await this.prisma.$executeRawUnsafe(
+        `CREATE TABLE IF NOT EXISTS mission_claims (
+          user_id TEXT NOT NULL, mission_id TEXT NOT NULL, day TEXT NOT NULL, coins INTEGER NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (user_id, mission_id, day)
+        )`,
+      );
+      await this.prisma.$executeRawUnsafe(
         `CREATE TABLE IF NOT EXISTS gift_transactions (
           id TEXT PRIMARY KEY,
           sender_id TEXT NOT NULL,
@@ -193,6 +199,63 @@ export class EconomyService implements OnModuleInit {
       gifts: GIFTS.filter((g) => (g.minLevel ?? 1) === i + 1).map((g) => g.id),
     }));
     return { me: m, maxLevel: MAX_LEVEL, levels };
+  }
+
+  // ---- daily missions (progress is counted from real activity on the server, claims are one per mission per Cairo day) ----
+  private missionDefs() {
+    return [
+      { id: 'send_gift', title: 'Send a gift in a voice room', titleAr: 'ابعت هدية في غرفة صوتية', target: 1, reward: 5 },
+      { id: 'join_room', title: 'Stay 2 minutes in a voice room', titleAr: 'اقعد دقيقتين في غرفة صوتية', target: 1, reward: 5 },
+      { id: 'post_moment', title: 'Post a moment', titleAr: 'انشر لحظة', target: 1, reward: 5 },
+    ];
+  }
+
+  async missions(userId: string) {
+    this.ensureReady();
+    const day = (await this.prisma.$queryRaw<{ d: string; dow: number }[]>`
+      SELECT ((now() AT TIME ZONE 'Africa/Cairo')::date)::text AS d, EXTRACT(DOW FROM (now() AT TIME ZONE 'Africa/Cairo'))::int AS dow`)[0];
+    const gifts = (await this.prisma.$queryRaw<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM gift_transactions
+      WHERE sender_id = ${userId} AND ((created_at AT TIME ZONE 'Africa/Cairo')::date)::text = ${day.d}`)[0]?.n ?? 0;
+    const rooms = (await this.prisma.$queryRaw<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM "VoiceRoomParticipant"
+      WHERE "userId" = ${userId} AND ((("joinedAt") AT TIME ZONE 'Africa/Cairo')::date)::text = ${day.d}
+        AND EXTRACT(EPOCH FROM (COALESCE("leftAt", now()) - "joinedAt")) >= 120`)[0]?.n ?? 0;
+    const moments = (await this.prisma.$queryRaw<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM "Post"
+      WHERE "authorId" = ${userId} AND "deletedAt" IS NULL AND ((("createdAt") AT TIME ZONE 'Africa/Cairo')::date)::text = ${day.d}`)[0]?.n ?? 0;
+    const claimed = new Set(
+      (await this.prisma.$queryRaw<{ mission_id: string }[]>`SELECT mission_id FROM mission_claims WHERE user_id = ${userId} AND day = ${day.d}`).map((r) => r.mission_id),
+    );
+    // Event: weekend bonus, Friday and Saturday (Cairo) pay double.
+    const mult = day.dow === 5 || day.dow === 6 ? 2 : 1;
+    const prog: Record<string, number> = { send_gift: gifts, join_room: rooms, post_moment: moments };
+    const list = this.missionDefs().map((m) => ({
+      ...m, reward: m.reward * mult, progress: Math.min(prog[m.id] ?? 0, m.target),
+      done: (prog[m.id] ?? 0) >= m.target, claimed: claimed.has(m.id),
+    }));
+    return {
+      day: day.d, resetsAt: 'midnight Africa/Cairo', missions: list,
+      event: mult > 1 ? { id: 'weekend_double', title: 'Weekend bonus: double mission rewards', titleAr: 'مكافأة الويكند: مكافآت المهام مضاعفة', multiplier: mult } : null,
+    };
+  }
+
+  async claimMission(userId: string, missionId: string) {
+    this.ensureReady();
+    const cur = await this.missions(userId);
+    const m = cur.missions.find((x) => x.id === missionId);
+    if (!m) throw new BadRequestException('Unknown mission');
+    if (!m.done) throw new BadRequestException('Mission is not finished yet');
+    await this.prisma.$transaction(async (tx) => {
+      const ins = await tx.$executeRaw`
+        INSERT INTO mission_claims (user_id, mission_id, day, coins) VALUES (${userId}, ${missionId}, ${cur.day}, ${m.reward})
+        ON CONFLICT DO NOTHING`;
+      if (ins === 0) throw new BadRequestException('Already claimed today');
+      await tx.$executeRaw`
+        INSERT INTO economy_wallets (user_id, coins) VALUES (${userId}, ${m.reward})
+        ON CONFLICT (user_id) DO UPDATE SET coins = economy_wallets.coins + ${m.reward}, updated_at = now()`;
+    });
+    return { claimed: m.reward, wallet: await this.me(userId), ...(await this.missions(userId)) };
   }
 
   async levelOf(userId: string) {

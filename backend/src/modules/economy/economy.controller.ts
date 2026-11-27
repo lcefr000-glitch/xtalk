@@ -72,6 +72,17 @@ export class EconomyController {
     return this.economy.me(user.id);
   }
 
+  @Get('missions')
+  missions(@CurrentUser() user: AuthUser) {
+    return this.economy.missions(user.id);
+  }
+
+  @HttpCode(200)
+  @Post('missions/:id/claim')
+  claimMission(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.economy.claimMission(user.id, id);
+  }
+
   @Get('level-info')
   levelInfo(@CurrentUser() user: AuthUser) {
     return this.economy.levelInfo(user.id);
