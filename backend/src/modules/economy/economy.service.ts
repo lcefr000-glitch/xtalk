@@ -352,7 +352,9 @@ export class EconomyService implements OnModuleInit {
     return { period: period === 'total' || period === 'month' ? period : 'day', entries };
   }
 
-  static readonly COINS_PER_DIAMOND_EXCHANGE = 5;
+  static readonly COINS_PER_DIAMOND_EXCHANGE = 1;
+  /** VIP-by-diamonds prices keep their earlier level (coin price / 5), independent of the coin exchange rate. */
+  static readonly VIP_DIAMOND_DIVISOR = 5;
 
   async diamonds(userId: string) {
     this.ensureReady();
@@ -362,7 +364,7 @@ export class EconomyService implements OnModuleInit {
       diamonds: points / 10,
       wholeDiamonds: Math.floor(points / 10),
       coinsPerDiamond: EconomyService.COINS_PER_DIAMOND_EXCHANGE,
-      vipPrices: VIP_PLANS.map((p) => ({ tier: p.tier, months: p.months, diamonds: Math.ceil(p.priceCoins / EconomyService.COINS_PER_DIAMOND_EXCHANGE) })),
+      vipPrices: VIP_PLANS.map((p) => ({ tier: p.tier, months: p.months, diamonds: Math.ceil(p.priceCoins / EconomyService.VIP_DIAMOND_DIVISOR) })),
     };
   }
 
@@ -390,7 +392,7 @@ export class EconomyService implements OnModuleInit {
     this.ensureReady();
     const plan = VIP_PLANS.find((p) => p.tier === tier);
     if (!plan) throw new BadRequestException('Unknown VIP plan');
-    const cost = Math.ceil(plan.priceCoins / EconomyService.COINS_PER_DIAMOND_EXCHANGE);
+    const cost = Math.ceil(plan.priceCoins / EconomyService.VIP_DIAMOND_DIVISOR);
     const points = cost * 10;
     const evId = (await import('crypto')).randomUUID();
     const n = await this.prisma.$executeRaw`UPDATE economy_diamonds SET points = points - ${points}, updated_at = now() WHERE user_id = ${userId} AND points >= ${points}`;
