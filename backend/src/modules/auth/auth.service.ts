@@ -402,9 +402,18 @@ export class AuthService {
     }
     if (existing) {
       if (existing.status === 'SUSPENDED') throw new UnauthorizedException('Account is suspended');
+      // Pre-takeover guard: an account made with this email by password, without proving the email, may have been
+      // created by someone else. Proving the email with Google makes the real owner the only one with access:
+      // the old password stops working and every old session is revoked.
+      const takeoverGuard = existing.emailVerified === false
+        ? { passwordHash: await argon2.hash(randomToken(32), { type: argon2.argon2id }) }
+        : {};
+      if (existing.emailVerified === false) {
+        await this.prisma.refreshToken.updateMany({ where: { userId: existing.id, revokedAt: null }, data: { revokedAt: new Date() } });
+      }
       const user = await this.prisma.user.update({
         where: { id: existing.id },
-        data: { lastActiveAt: new Date(), emailVerified: true },
+        data: { lastActiveAt: new Date(), emailVerified: true, ...takeoverGuard },
       });
       const tokens = await this.issueTokenPair(user, meta);
       return { user: this.publicUser(user), ...tokens };
