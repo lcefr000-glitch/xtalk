@@ -27,6 +27,10 @@ export class ProfilesService {
   }
 
   async updateMyProfile(userId: string, dto: UpdateProfileDto) {
+    if (dto.country !== undefined) {
+      const cur = await this.prisma.profile.findUnique({ where: { userId }, select: { country: true } });
+      if (cur?.country && cur.country !== dto.country) throw new ForbiddenException('Your country cannot be changed');
+    }
     const data = {
       ...(dto.displayName !== undefined ? { displayName: dto.displayName } : {}),
       ...(dto.bio !== undefined ? { bio: dto.bio } : {}),

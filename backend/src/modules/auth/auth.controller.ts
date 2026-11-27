@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Ip, Param, Post, Headers } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Ip, Param, Post, Headers } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -13,6 +13,15 @@ import { ForgotPasswordDto, ResetPasswordDto, VerifyEmailDto } from './dto/email
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @HttpCode(200)
+  @Post('signup-code')
+  signupCode(@Body() body: { email: string }) {
+    if (!body?.email || typeof body.email !== 'string' || !/^[^@\s]+@[^@\s]+$/.test(body.email)) throw new BadRequestException('Invalid email');
+    return this.auth.sendSignupCode(body.email);
+  }
 
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 10 } })

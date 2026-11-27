@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsDateString, IsEmail, IsString, Length, Matches } from 'class-validator';
+import { IsDateString, IsEmail, IsOptional, IsString, Length, Matches } from 'class-validator';
 
 export class RegisterDto {
   @IsEmail()
@@ -27,4 +27,16 @@ export class RegisterDto {
   /** ISO date (YYYY-MM-DD). Used for age-aware onboarding (min age 13). */
   @IsDateString()
   dateOfBirth!: string;
+
+  /** ISO 3166-1 alpha-2, picked at signup. Cannot be changed later. */
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Z]{2}$/, { message: 'country must be an ISO 3166-1 alpha-2 code' })
+  country?: string;
+
+  /** 6-digit code emailed by POST /auth/signup-code (required once the server can send email). */
+  @IsOptional()
+  @IsString()
+  @Length(6, 6)
+  emailCode?: string;
 }

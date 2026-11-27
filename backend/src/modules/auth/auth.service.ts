@@ -19,6 +19,7 @@ import { RegisterDto } from './dto/register.dto';
 import { Transform } from 'class-transformer';
 import { IsDateString, IsOptional, IsString, Length, Matches } from 'class-validator';
 import { createPublicKey, createVerify } from 'crypto';
+import { sendMail, smtpConfigured } from './signup-mail';
 
 export interface RequestMeta {
   ip?: string;
@@ -90,12 +91,17 @@ export class AuthService {
       );
     }
 
+    let emailOk = false;
+    if (smtpConfigured()) {
+      await this.checkSignupCode(dto.email, dto.emailCode);
+      emailOk = true;
+    }
     const passwordHash = await argon2.hash(dto.password, { type: argon2.argon2id });
     const user = await this.prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
-        data: { email: dto.email, username: dto.username, passwordHash, dateOfBirth: dob, isMinor: age < 18 },
+        data: { email: dto.email, username: dto.username, passwordHash, dateOfBirth: dob, isMinor: age < 18, emailVerified: emailOk },
       });
-      await tx.profile.create({ data: { userId: created.id, displayName: dto.displayName } });
+      await tx.profile.create({ data: { userId: created.id, displayName: dto.displayName, ...(dto.country ? { country: dto.country } : {}) } });
       await tx.userSettings.create({ data: { userId: created.id } });
       await tx.subscription.create({ data: { userId: created.id } });
       return created;
@@ -109,6 +115,38 @@ export class AuthService {
       ...tokens,
       ...(this.devExposeTokens() ? { devVerificationToken: verification } : {}),
     };
+  }
+
+  // ---------- Signup email code ----------
+  private signupCodes = new Map<string, { hash: string; exp: number; tries: number; last: number }>();
+
+  /** Sends a 6-digit code to the email when the server can send mail. Otherwise tells the app no code is needed. */
+  async sendSignupCode(emailRaw: string) {
+    const email = emailRaw.trim().toLowerCase();
+    if (!smtpConfigured()) return { required: false };
+    const taken = await this.prisma.user.findUnique({ where: { email }, select: { id: true, deletedAt: true } });
+    if (taken && !taken.deletedAt) throw new ConflictException('Email is already registered');
+    const cur = this.signupCodes.get(email);
+    if (cur && Date.now() - cur.last < 45_000) throw new BadRequestException('Wait a little before asking for another code');
+    const code = String(require('crypto').randomInt(0, 1_000_000)).padStart(6, '0');
+    this.signupCodes.set(email, { hash: sha256Hex(email + ':' + code), exp: Date.now() + 10 * 60_000, tries: 0, last: Date.now() });
+    try {
+      await sendMail(email, 'Your X Talk verification code', `Your X Talk verification code is ${code}.\n\nIt expires in 10 minutes. If you did not try to sign up, ignore this email.`);
+    } catch (e) {
+      this.signupCodes.delete(email);
+      this.logger.error('signup mail failed: ' + (e as Error).message);
+      throw new ServiceUnavailableException('Could not send the email right now. Try again in a minute.');
+    }
+    return { required: true };
+  }
+
+  private async checkSignupCode(email: string, code?: string) {
+    const rec = this.signupCodes.get(email);
+    if (!code || !rec || rec.exp < Date.now()) throw new BadRequestException('Enter the code we emailed you (it may have expired)');
+    rec.tries++;
+    if (rec.tries > 5) { this.signupCodes.delete(email); throw new BadRequestException('Too many wrong codes. Ask for a new one.'); }
+    if (rec.hash !== sha256Hex(email + ':' + code)) throw new BadRequestException('Wrong code');
+    this.signupCodes.delete(email);
   }
 
   // ---------- Login / session ----------
