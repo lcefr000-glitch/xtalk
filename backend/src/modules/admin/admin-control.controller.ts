@@ -36,8 +36,10 @@ export class AdminControlController {
   }
 
   @Post('min-version')
-  async minVersion(@Req() req: any, @Body() b: { code: number }) {
+  async minVersion(@Req() req: any, @Body() b: { code: number; message?: string }) {
     owner(req);
+    // optional text shown on the app's "update required" screen (e.g. where to download); keeps the lockdown state unchanged
+    if (typeof b?.message === 'string') await this.control.setLockdown((await this.control.state()).lockdown, b.message);
     const s = await this.control.setMinVersion(Number(b?.code) || 0);
     await this.audit(req.admin.id, 'MIN_VERSION', String(b?.code));
     return s;
