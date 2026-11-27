@@ -21,6 +21,13 @@ export class ChatExtrasService implements OnModuleInit {
         )`,
       );
       await this.prisma.$executeRawUnsafe(
+        `CREATE TABLE IF NOT EXISTS message_fixes (
+          message_id TEXT NOT NULL, corrector_id TEXT NOT NULL, fixed_text TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (message_id, corrector_id)
+        )`,
+      );
+      await this.prisma.$executeRawUnsafe(
         `CREATE TABLE IF NOT EXISTS chat_pins (
           user_id TEXT NOT NULL, conversation_id TEXT NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -84,6 +91,43 @@ export class ChatExtrasService implements OnModuleInit {
       GROUP BY r.message_id, r.emoji ORDER BY MIN(r.created_at)`;
     const byMessage: Record<string, { emoji: string; count: number; mine: boolean }[]> = {};
     for (const r of rows) (byMessage[r.message_id] ??= []).push({ emoji: r.emoji, count: r.n, mine: r.mine });
+    return { byMessage };
+  }
+
+  /** A chat partner suggests a corrected version of someone else's text message (one per person per message, can be replaced). */
+  async fixMessage(userId: string, messageId: string, text: string) {
+    this.ensureReady();
+    const clean = (text ?? '').trim();
+    if (!clean || clean.length > 2000) throw new BadRequestException('Correction must be 1 to 2000 characters');
+    const msg = await this.prisma.message.findUnique({ where: { id: messageId }, select: { conversationId: true, deletedAt: true, senderId: true, type: true, body: true } });
+    if (!msg || msg.deletedAt) throw new NotFoundException('Message not found');
+    await this.assertMember(userId, msg.conversationId);
+    if (msg.senderId === userId) throw new BadRequestException('You cannot correct your own message');
+    if (msg.type !== 'TEXT' || !msg.body) throw new BadRequestException('Only text messages can be corrected');
+    if (clean === msg.body.trim()) throw new BadRequestException('The correction is the same as the message');
+    await this.prisma.$executeRaw`
+      INSERT INTO message_fixes (message_id, corrector_id, fixed_text) VALUES (${messageId}, ${userId}, ${clean})
+      ON CONFLICT (message_id, corrector_id) DO UPDATE SET fixed_text = ${clean}, created_at = now()`;
+    return { success: true };
+  }
+
+  async removeFix(userId: string, messageId: string) {
+    this.ensureReady();
+    await this.prisma.$executeRaw`DELETE FROM message_fixes WHERE message_id = ${messageId} AND corrector_id = ${userId}`;
+    return { success: true };
+  }
+
+  /** Corrections for the messages of one conversation, per message. */
+  async fixesForConversation(userId: string, conversationId: string) {
+    this.ensureReady();
+    await this.assertMember(userId, conversationId);
+    const rows = await this.prisma.$queryRaw<{ message_id: string; corrector_id: string; fixed_text: string; created_at: Date }[]>`
+      SELECT f.message_id, f.corrector_id, f.fixed_text, f.created_at
+      FROM message_fixes f JOIN "Message" m ON m.id = f.message_id
+      WHERE m."conversationId" = ${conversationId} AND m."deletedAt" IS NULL
+      ORDER BY f.created_at LIMIT 500`;
+    const byMessage: Record<string, { correctorId: string; text: string; mine: boolean; createdAt: string }[]> = {};
+    for (const r of rows) (byMessage[r.message_id] ??= []).push({ correctorId: r.corrector_id, text: r.fixed_text, mine: r.corrector_id === userId, createdAt: r.created_at.toISOString() });
     return { byMessage };
   }
 

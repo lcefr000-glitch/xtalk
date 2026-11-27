@@ -10,6 +10,12 @@ class ReactDto {
   emoji!: string;
 }
 
+class FixDto {
+  @IsString()
+  @MaxLength(2000)
+  text!: string;
+}
+
 class FlagDto {
   @IsBoolean()
   value!: boolean;
@@ -30,6 +36,23 @@ export class ChatExtrasController {
   @Get('conversations/:id/reactions')
   reactions(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.extras.forConversation(user.id, id);
+  }
+
+  @Post('messages/:id/fix')
+  @HttpCode(200)
+  fix(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: FixDto) {
+    return this.extras.fixMessage(user.id, id, dto.text);
+  }
+
+  @Post('messages/:id/fix/remove')
+  @HttpCode(200)
+  removeFix(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.extras.removeFix(user.id, id);
+  }
+
+  @Get('conversations/:id/fixes')
+  fixes(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.extras.fixesForConversation(user.id, id);
   }
 
   @Get('pins')
