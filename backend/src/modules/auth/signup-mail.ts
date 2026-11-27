@@ -3,10 +3,24 @@ import * as crypto from 'crypto';
 
 /** Minimal SMTP client (TLS on connect, AUTH LOGIN). Configured only by env: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM. */
 export function smtpConfigured(): boolean {
-  return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+  return !!process.env.BREVO_API_KEY || !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+}
+
+/** HTTPS mail API (Brevo). Env: BREVO_API_KEY, MAIL_FROM_EMAIL (verified sender), MAIL_FROM_NAME (optional). */
+async function sendViaApi(to: string, subject: string, text: string): Promise<void> {
+  if (/[\r\n]/.test(to + subject)) throw new Error('bad header');
+  const email = process.env.MAIL_FROM_EMAIL || process.env.SMTP_USER || '';
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: { 'api-key': process.env.BREVO_API_KEY!, 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ sender: { email, name: process.env.MAIL_FROM_NAME || 'X Talk' }, to: [{ email: to }], subject, textContent: text }),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`mail api ${res.status} ${(await res.text()).slice(0, 120)}`);
 }
 
 export function sendMail(to: string, subject: string, text: string): Promise<void> {
+  if (process.env.BREVO_API_KEY) return sendViaApi(to, subject, text);
   const host = process.env.SMTP_HOST!;
   const port = parseInt(process.env.SMTP_PORT || '465', 10);
   const user = process.env.SMTP_USER!;
