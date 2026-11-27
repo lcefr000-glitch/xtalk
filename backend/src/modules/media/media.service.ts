@@ -1,11 +1,13 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
-const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'audio/mp4'];
+const MAX_AUDIO_BYTES = 2 * 1024 * 1024;
 const MAX_BYTES = 6 * 1024 * 1024;
 
 /** Check the real file signature so a non-image can't be stored under an image type. */
 function sniffOk(mime: string, d: Buffer): boolean {
+  if (mime === 'audio/mp4') return d.length > 12 && d.subarray(4, 8).toString('latin1') === 'ftyp';
   if (mime === 'image/jpeg') return d.length > 3 && d[0] === 0xff && d[1] === 0xd8 && d[2] === 0xff;
   if (mime === 'image/png') return d.length > 8 && d.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
   if (mime === 'image/gif') { const h = d.subarray(0, 6).toString('latin1'); return h === 'GIF87a' || h === 'GIF89a'; }
@@ -44,7 +46,8 @@ export class MediaService implements OnModuleInit {
 
   async save(ownerId: string, mime: string, data: Buffer) {
     const m = (mime || '').split(';')[0].trim().toLowerCase();
-    if (!ALLOWED.includes(m)) throw new BadRequestException('Only JPEG, PNG, WEBP or GIF images are allowed');
+    if (!ALLOWED.includes(m)) throw new BadRequestException('Only JPEG, PNG, WEBP or GIF images or AAC voice clips are allowed');
+    if (m === 'audio/mp4' && data.length > MAX_AUDIO_BYTES) throw new BadRequestException('Voice clip too large (max 2 MB)');
     if (!Buffer.isBuffer(data) || data.length === 0) throw new BadRequestException('Empty upload');
     if (data.length > MAX_BYTES) throw new BadRequestException('Image too large (max 6 MB)');
     if (!sniffOk(m, data)) throw new BadRequestException('File content does not match an image type');
