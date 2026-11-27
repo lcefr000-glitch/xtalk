@@ -81,6 +81,13 @@ export class AdminController {
 
   @ApiBearerAuth()
   @UseGuards(AdminGuard)
+  @Get('users/:id/restore-preview')
+  restorePreview(@Param('id', ParseUUIDPipe) id: string) {
+    return this.admin.restorePreview(id);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(AdminGuard)
   @Get('audit-log')
   audit(@Query('page') page?: string, @Query('limit') limit?: string) {
     return this.admin.auditLog(page ? parseInt(page, 10) : 1, limit ? parseInt(limit, 10) : 30);

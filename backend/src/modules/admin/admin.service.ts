@@ -178,6 +178,28 @@ export class AdminService implements OnModuleInit {
     return { success: true };
   }
 
+  /** READ-ONLY: what could be restored for a deleted account. Changes nothing. */
+  async restorePreview(userId: string) {
+    const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, status: true, deletedAt: true, createdAt: true, dateOfBirth: true } });
+    if (!u) throw new NotFoundException('User not found');
+    const q = async (sql: string) => { try { return await this.prisma.$queryRawUnsafe<any[]>(sql, userId); } catch (e) { return [{ error: (e as Error).message.slice(0, 120) }]; } };
+    const codes = await q(`SELECT kind, coins, vip_tier, redeemed_at FROM redeem_codes WHERE redeemed_by = $1 ORDER BY redeemed_at`);
+    const sent = await q(`SELECT count(*)::int AS n, COALESCE(sum(coins),0)::int AS coins FROM gift_transactions WHERE sender_id = $1`);
+    const recv = await q(`SELECT count(*)::int AS n, COALESCE(sum(coins),0)::int AS coins FROM gift_transactions WHERE receiver_id = $1`);
+    const wallet = await q(`SELECT coins, total_spent FROM economy_wallets WHERE user_id = $1`);
+    const vip = await q(`SELECT tier, started_at FROM vip_meta WHERE user_id = $1`);
+    const sub = await q(`SELECT 1 AS has FROM "Subscription" WHERE "userId" = $1`);
+    const granted = codes.filter((c: any) => c.kind === 'COINS').reduce((a: number, c: any) => a + (c.coins ?? 0), 0);
+    const spent = sent[0]?.coins ?? 0;
+    return {
+      user: u, wallet, vip, subscriptionRow: sub.length > 0,
+      redeemedCodes: codes, coinsGrantedByCodes: granted,
+      giftsSent: sent[0], giftsReceived: recv[0],
+      estimate: { coinsLeft: granted - spent, totalSpent: spent },
+      note: 'coinsLeft = coin codes redeemed minus gifts sent. Test grants or other credits are not visible and would make the real balance higher.',
+    };
+  }
+
   auditLog(page = 1, limit = 30) {
     return this.prisma.moderationAction.findMany({
       include: { admin: { select: { id: true, email: true, role: true } }, report: true },
