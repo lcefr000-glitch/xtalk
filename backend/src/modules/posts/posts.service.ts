@@ -158,7 +158,11 @@ export class PostsService implements OnModuleInit {
   }
 
   async comment(userId: string, postId: string, dto: CreateCommentDto) {
-    await this.getOne(postId);
+    const target = await this.getOne(postId);
+    const authorId = (target as { authorId?: string }).authorId;
+    if (authorId && authorId !== userId && (await this.safety.isBlockedEitherWay(userId, authorId))) {
+      throw new ForbiddenException('You cannot comment on this post');
+    }
     if (dto.parentId) {
       const parent = await this.prisma.comment.findUnique({ where: { id: dto.parentId } });
       if (!parent || parent.postId !== postId || parent.deletedAt) {

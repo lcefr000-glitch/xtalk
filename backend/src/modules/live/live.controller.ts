@@ -29,13 +29,13 @@ export class LiveController {
   }
 
   @Get()
-  list(@Query('language') language?: string, @Query('category') category?: string, @Query('page') page?: string, @Query('limit') limit?: string) {
+  list(@CurrentUser() user: AuthUser, @Query('language') language?: string, @Query('category') category?: string, @Query('page') page?: string, @Query('limit') limit?: string) {
     return this.live.list({
       language,
       category,
       page: page ? Math.max(1, parseInt(page, 10)) : 1,
       limit: limit ? Math.min(Math.max(1, parseInt(limit, 10)), 50) : 20,
-    });
+    }, user.id);
   }
 
   @Get(':id')

@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { SafetyService } from '../safety/safety.service';
 
 export interface GiftDef { id: string; name: string; nameAr: string; emoji: string; price: number; fx: string }
 
@@ -88,7 +89,7 @@ export class EconomyService implements OnModuleInit {
   private readonly log = new Logger('Economy');
   private ready = false;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly safety: SafetyService) {}
 
   /** Additive, idempotent bootstrap: only CREATE ... IF NOT EXISTS. Never alters or drops anything. */
   async onModuleInit() {
@@ -214,5 +215,123 @@ export class EconomyService implements OnModuleInit {
       id: r.id, senderId: r.sender_id, receiverId: r.receiver_id, giftId: r.gift_id, coins: r.coins,
       createdAt: r.created_at.toISOString(), senderLevel: levelFor(r.sender_spent ?? 0),
     }));
+  }
+
+  /** Public leaderboard. kind=spent (gift coins sent in a rolling window) or level (lifetime spend). */
+  async leaderboard(viewerId: string, kind: string, period: string) {
+    this.ensureReady();
+    const hidden = new Set<string>(await this.safety.countryBlockedUserIds(viewerId).catch(() => []));
+    const blocks = await this.prisma.block.findMany({
+      where: { OR: [{ blockerId: viewerId }, { blockedId: viewerId }] },
+      select: { blockerId: true, blockedId: true },
+    });
+    for (const b of blocks) hidden.add(b.blockerId === viewerId ? b.blockedId : b.blockerId);
+    let raw: { uid: string; amt: number }[];
+    let meAmt = 0;
+    let ahead = 0;
+    if (kind === 'level') {
+      raw = await this.prisma.$queryRaw<{ uid: string; amt: number }[]>`
+        SELECT user_id AS uid, total_spent AS amt FROM economy_wallets WHERE total_spent > 0 ORDER BY total_spent DESC, user_id LIMIT 150`;
+      const m = await this.prisma.$queryRaw<{ amt: number }[]>`SELECT total_spent AS amt FROM economy_wallets WHERE user_id = ${viewerId}`;
+      meAmt = m[0]?.amt ?? 0;
+      if (meAmt > 0) {
+        const c = await this.prisma.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS n FROM economy_wallets WHERE total_spent > ${meAmt}`;
+        ahead = c[0]?.n ?? 0;
+      }
+    } else {
+      const ms = period === 'hour' ? 3600e3 : period === 'month' ? 30 * 86400e3 : 86400e3;
+      const since = new Date(Date.now() - ms);
+      raw = await this.prisma.$queryRaw<{ uid: string; amt: number }[]>`
+        SELECT sender_id AS uid, SUM(coins)::int AS amt FROM gift_transactions WHERE created_at > ${since}
+        GROUP BY sender_id ORDER BY amt DESC, sender_id LIMIT 150`;
+      const m = await this.prisma.$queryRaw<{ amt: number | null }[]>`
+        SELECT SUM(coins)::int AS amt FROM gift_transactions WHERE sender_id = ${viewerId} AND created_at > ${since}`;
+      meAmt = m[0]?.amt ?? 0;
+      if (meAmt > 0) {
+        const c = await this.prisma.$queryRaw<{ n: number }[]>`
+          SELECT count(*)::int AS n FROM (SELECT sender_id FROM gift_transactions WHERE created_at > ${since}
+          GROUP BY sender_id HAVING SUM(coins) > ${meAmt}) t`;
+        ahead = c[0]?.n ?? 0;
+      }
+    }
+    const cand = raw.filter((r) => !hidden.has(r.uid));
+    const ids = cand.map((r) => r.uid);
+    const users = ids.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: ids }, status: 'ACTIVE', deletedAt: null },
+          select: { id: true, username: true, profile: { select: { displayName: true, photoUrl: true, country: true } } },
+        })
+      : [];
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const subs = ids.length
+      ? await this.prisma.subscription.findMany({
+          where: { userId: { in: ids }, plan: 'PREMIUM', status: 'ACTIVE', OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+          select: { userId: true, expiresAt: true },
+        })
+      : [];
+    const vip = new Map(subs.map((x) => [x.userId, x.expiresAt === null ? 'LIFETIME' : 'TIMED']));
+    const entries = cand
+      .filter((r) => byId.has(r.uid))
+      .slice(0, 50)
+      .map((r, i) => {
+        const u = byId.get(r.uid)!;
+        return {
+          rank: i + 1,
+          userId: u.id,
+          username: u.username,
+          displayName: u.profile?.displayName ?? u.username,
+          photoUrl: u.profile?.photoUrl ?? null,
+          country: u.profile?.country ?? null,
+          vip: vip.get(u.id) ?? null,
+          amount: r.amt,
+          level: kind === 'level' ? levelFor(r.amt) : undefined,
+        };
+      });
+    return {
+      kind: kind === 'level' ? 'level' : 'spent',
+      period: kind === 'level' ? null : period === 'hour' || period === 'month' ? period : 'day',
+      entries,
+      me: { amount: meAmt, level: kind === 'level' ? levelFor(meAmt) : undefined, rank: meAmt > 0 ? ahead + 1 : null },
+    };
+  }
+
+  /** Top gifters inside one room. period: day | month | total. Viewer must be in the room. */
+  async roomLeaderboard(viewerId: string, roomId: string, period: string) {
+    this.ensureReady();
+    const inRoom = await this.prisma.voiceRoomParticipant.findFirst({ where: { roomId, userId: viewerId, leftAt: null }, select: { id: true } });
+    if (!inRoom) throw new ForbiddenException('Join the room first');
+    const since = period === 'total' ? new Date(0) : new Date(Date.now() - (period === 'month' ? 30 * 86400e3 : 86400e3));
+    const raw = await this.prisma.$queryRaw<{ uid: string; amt: number }[]>`
+      SELECT sender_id AS uid, SUM(coins)::int AS amt FROM gift_transactions
+      WHERE room_id = ${roomId} AND created_at > ${since}
+      GROUP BY sender_id ORDER BY amt DESC, sender_id LIMIT 50`;
+    const ids = raw.map((r) => r.uid);
+    const users = ids.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: ids }, status: 'ACTIVE', deletedAt: null },
+          select: { id: true, username: true, profile: { select: { displayName: true, photoUrl: true, country: true } } },
+        })
+      : [];
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const subs = ids.length
+      ? await this.prisma.subscription.findMany({
+          where: { userId: { in: ids }, plan: 'PREMIUM', status: 'ACTIVE', OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+          select: { userId: true, expiresAt: true },
+        })
+      : [];
+    const vip = new Map(subs.map((x) => [x.userId, x.expiresAt === null ? 'LIFETIME' : 'TIMED']));
+    const lv = await this.levelsOf(ids);
+    const entries = raw
+      .filter((r) => byId.has(r.uid))
+      .map((r, i) => {
+        const u = byId.get(r.uid)!;
+        return {
+          rank: i + 1, userId: u.id, username: u.username,
+          displayName: u.profile?.displayName ?? u.username, photoUrl: u.profile?.photoUrl ?? null,
+          country: u.profile?.country ?? null, vip: vip.get(u.id) ?? null, amount: r.amt,
+          level: lv.levels[u.id] ?? 1,
+        };
+      });
+    return { period: period === 'total' || period === 'month' ? period : 'day', entries };
   }
 }

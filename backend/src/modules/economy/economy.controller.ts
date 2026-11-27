@@ -28,6 +28,16 @@ class LevelsDto {
 export class EconomyController {
   constructor(private readonly economy: EconomyService) {}
 
+  @Get('leaderboard')
+  leaderboard(@CurrentUser() user: AuthUser, @Query('kind') kind?: string, @Query('period') period?: string) {
+    return this.economy.leaderboard(user.id, kind ?? 'spent', period ?? 'day');
+  }
+
+  @Get('rooms/:roomId/leaderboard')
+  roomLeaderboard(@CurrentUser() user: AuthUser, @Param('roomId', ParseUUIDPipe) roomId: string, @Query('period') period?: string) {
+    return this.economy.roomLeaderboard(user.id, roomId, period ?? 'day');
+  }
+
   @Get('me')
   me(@CurrentUser() user: AuthUser) {
     return this.economy.me(user.id);

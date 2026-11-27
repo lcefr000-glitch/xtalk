@@ -7,6 +7,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { SafetyService } from '../safety/safety.service';
 import { LiveKitService } from '../voice/livekit.service';
 
 @Injectable()
@@ -16,7 +17,7 @@ export class LiveService implements OnModuleInit {
   /** Plain class, no injected deps - reuse the voice module's LiveKit wrapper. */
   private readonly livekit = new LiveKitService();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly safety: SafetyService) {}
 
   /** Additive, idempotent bootstrap: CREATE TABLE IF NOT EXISTS + enum additions only. */
   async onModuleInit() {
@@ -99,8 +100,19 @@ export class LiveService implements OnModuleInit {
     return { stream, hostToken: media?.token ?? null, livekitUrl: media?.url ?? null, mediaError };
   }
 
-  async list(q: { language?: string; category?: string; page: number; limit: number }) {
+  private async hiddenHosts(viewerId: string): Promise<string[]> {
+    const rows = await this.prisma.block.findMany({
+      where: { OR: [{ blockerId: viewerId }, { blockedId: viewerId }] },
+      select: { blockerId: true, blockedId: true },
+    });
+    const ids = new Set(rows.map((b) => (b.blockerId === viewerId ? b.blockedId : b.blockerId)));
+    for (const x of await this.safety.countryBlockedUserIds(viewerId).catch(() => [] as string[])) ids.add(x);
+    return [...ids];
+  }
+
+  async list(q: { language?: string; category?: string; page: number; limit: number }, viewerId?: string) {
     this.ensureReady();
+    const hide = viewerId ? await this.hiddenHosts(viewerId) : [];
     const offset = (q.page - 1) * q.limit;
     const lang = q.language?.toLowerCase() ?? null;
     const cat = q.category ?? null;
@@ -111,6 +123,7 @@ export class LiveService implements OnModuleInit {
       JOIN "User" u ON u.id = s.host_id
       LEFT JOIN "Profile" p ON p."userId" = u.id
       WHERE s.status = 'LIVE'
+        AND NOT (s.host_id = ANY(${hide}::text[]))
         AND (${lang}::text IS NULL OR s.language_code = ${lang})
         AND (${cat}::text IS NULL OR s.category = ${cat})
       ORDER BY s.current_viewers DESC, s.started_at DESC
@@ -134,6 +147,7 @@ export class LiveService implements OnModuleInit {
     const stream = await this.get(id);
     if (stream.status !== 'LIVE') throw new NotFoundException('Stream has ended');
     if (stream.host_id === userId) return this.hostView(id, userId);
+    if (await this.safety.isBlockedEitherWay(userId, stream.host_id as string)) throw new ForbiddenException('Not available');
     const profile = await this.prisma.profile.findUnique({ where: { userId }, select: { displayName: true } });
     const media = await this.livekit.createToken({
       roomId: `live-${id}`,
