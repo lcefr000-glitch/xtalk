@@ -34,6 +34,8 @@ export class VoiceService implements OnModuleInit {
 
   /** Additive, idempotent bootstrap: CREATE TABLE IF NOT EXISTS only. */
   async onModuleInit() {
+    setTimeout(() => void this.sweepRooms(), 20000);
+    setInterval(() => void this.sweepRooms(), 5 * 60 * 1000).unref();
     try {
       await this.prisma.$executeRawUnsafe(
         `CREATE TABLE IF NOT EXISTS voice_room_themes (room_id TEXT PRIMARY KEY, theme TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
@@ -107,6 +109,12 @@ export class VoiceService implements OnModuleInit {
 
   async createRoom(hostId: string, dto: CreateRoomDto) {
     await this.assertRoomTime(hostId);
+    // One open room per person: creating another takes the host back to the one already open.
+    const open = await this.prisma.voiceRoom.findFirst({ where: { hostId, isLive: true }, orderBy: { createdAt: 'desc' }, include: { participants: true } });
+    if (open) {
+      await this.prisma.voiceRoomParticipant.updateMany({ where: { roomId: open.id, userId: hostId }, data: { leftAt: null, role: 'HOST' } });
+      return open;
+    }
     const created = await this.createRoomRow(hostId, dto);
     void this.notifyFollowers(hostId, created.id, dto.title).catch(() => undefined);
     await this.ensureMeta();
@@ -374,7 +382,49 @@ export class VoiceService implements OnModuleInit {
       where: { roomId, userId, leftAt: null },
       data: { leftAt: new Date() },
     });
+    await this.closeIfUnattended(roomId).catch(() => undefined);
     return { success: true };
+  }
+
+  /** A room with no host and no moderator inside is closed. */
+  private async closeIfUnattended(roomId: string) {
+    const room = await this.prisma.voiceRoom.findUnique({ where: { id: roomId }, select: { id: true, isLive: true, hostId: true } });
+    if (!room || !room.isLive) return;
+    const full = await this.getRoom(roomId);
+    const active = await this.prisma.voiceRoomParticipant.findMany({ where: { roomId, leftAt: null }, select: { userId: true, role: true } });
+    const attended = active.some((p) => p.userId === room.hostId || p.role === 'HOST' || full.moderatorIds.includes(p.userId));
+    if (attended) return;
+    this.stageRequests.delete(roomId);
+    this.stageInvites.delete(roomId);
+    await this.prisma.$transaction([
+      this.prisma.voiceRoom.update({ where: { id: roomId }, data: { isLive: false, closedAt: new Date() } }),
+      this.prisma.voiceRoomParticipant.updateMany({ where: { roomId, leftAt: null }, data: { leftAt: new Date() } }),
+    ]);
+    await this.livekit.closeRoom(roomId).catch(() => undefined);
+  }
+
+  /** Closes rooms nobody is in, and keeps only the newest open room per host. */
+  private async sweepRooms() {
+    try {
+      const live = await this.prisma.voiceRoom.findMany({ where: { isLive: true }, select: { id: true, hostId: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 500 });
+      const seenHost = new Set<string>();
+      for (const r of live) {
+        const dup = seenHost.has(r.hostId);
+        seenHost.add(r.hostId);
+        const inside = await this.prisma.voiceRoomParticipant.count({ where: { roomId: r.id, leftAt: null } });
+        if (dup || inside === 0) {
+          this.stageRequests.delete(r.id);
+          this.stageInvites.delete(r.id);
+          await this.prisma.$transaction([
+            this.prisma.voiceRoom.update({ where: { id: r.id }, data: { isLive: false, closedAt: new Date() } }),
+            this.prisma.voiceRoomParticipant.updateMany({ where: { roomId: r.id, leftAt: null }, data: { leftAt: new Date() } }),
+          ]);
+          await this.livekit.closeRoom(r.id).catch(() => undefined);
+        }
+      }
+    } catch (e) {
+      this.log.error('room sweep failed: ' + (e as Error).message);
+    }
   }
 
   private async requireHost(userId: string, roomId: string) {
