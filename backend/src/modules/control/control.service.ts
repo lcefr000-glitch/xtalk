@@ -5,6 +5,8 @@ export interface ControlState {
   lockdown: boolean;
   message: string;
   minVersionCode: number;
+  /** Where users can download the latest app (shown as a button on the update screen). */
+  updateUrl: string;
   /** Access tokens issued before this time (ms since epoch) are rejected. */
   validAfter: number;
 }
@@ -13,7 +15,7 @@ export interface ControlState {
 @Injectable()
 export class ControlService implements OnModuleInit {
   private readonly log = new Logger('Control');
-  private cache: ControlState = { lockdown: false, message: '', minVersionCode: 0, validAfter: 0 };
+  private cache: ControlState = { lockdown: false, message: '', minVersionCode: 0, updateUrl: '', validAfter: 0 };
   private cacheAt = 0;
 
   constructor(private readonly prisma: PrismaService) {}
@@ -35,6 +37,7 @@ export class ControlService implements OnModuleInit {
         lockdown: m.get('lockdown') === 'on',
         message: m.get('message') ?? '',
         minVersionCode: parseInt(m.get('min_version_code') ?? '0', 10) || 0,
+        updateUrl: m.get('update_url') ?? '',
         validAfter: parseInt(m.get('valid_after') ?? '0', 10) || 0,
       };
       this.cacheAt = Date.now();
@@ -57,6 +60,13 @@ export class ControlService implements OnModuleInit {
 
   async setMinVersion(code: number) {
     await this.put('min_version_code', String(Math.max(0, Math.floor(code))));
+    return this.state();
+  }
+
+  async setUpdateUrl(url: string) {
+    const u = (url ?? '').trim();
+    if (u && (!/^https:\/\/[^\s]+$/.test(u) || u.length > 500)) throw new Error('Update link must start with https://');
+    await this.put('update_url', u);
     return this.state();
   }
 

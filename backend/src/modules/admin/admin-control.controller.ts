@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
 import { Public } from '../../common/decorators/public.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ControlService } from '../control/control.service';
@@ -36,12 +36,16 @@ export class AdminControlController {
   }
 
   @Post('min-version')
-  async minVersion(@Req() req: any, @Body() b: { code: number; message?: string }) {
+  async minVersion(@Req() req: any, @Body() b: { code?: number; message?: string; updateUrl?: string }) {
     owner(req);
-    // optional text shown on the app's "update required" screen (e.g. where to download); keeps the lockdown state unchanged
+    // each field is optional and changed only when sent
     if (typeof b?.message === 'string') await this.control.setLockdown((await this.control.state()).lockdown, b.message);
-    const s = await this.control.setMinVersion(Number(b?.code) || 0);
-    await this.audit(req.admin.id, 'MIN_VERSION', String(b?.code));
+    if (typeof b?.updateUrl === 'string') {
+      try { await this.control.setUpdateUrl(b.updateUrl); } catch (e) { throw new BadRequestException((e as Error).message); }
+    }
+    let s = await this.control.state();
+    if (b?.code !== undefined) s = await this.control.setMinVersion(Number(b.code) || 0);
+    await this.audit(req.admin.id, 'MIN_VERSION', JSON.stringify({ code: b?.code, updateUrl: b?.updateUrl, message: b?.message }).slice(0, 300));
     return s;
   }
 

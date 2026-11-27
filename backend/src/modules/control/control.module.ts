@@ -12,7 +12,7 @@ export class AppStatusController {
   @Get('status')
   async status() {
     const s = await this.control.state();
-    return { locked: s.lockdown, message: s.message, minVersionCode: s.minVersionCode };
+    return { locked: s.lockdown, message: s.message, minVersionCode: s.minVersionCode, updateUrl: s.updateUrl };
   }
 }
 

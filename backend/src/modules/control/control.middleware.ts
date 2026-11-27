@@ -15,7 +15,7 @@ export function controlMiddleware(control: ControlService) {
     if (s.minVersionCode > 0) {
       const v = parseInt(String(req.headers['x-app-version'] ?? ''), 10);
       if (!Number.isFinite(v) || v < s.minVersionCode) {
-        return res.status(426).json({ statusCode: 426, code: 'UPDATE_REQUIRED', message: s.message || 'Please update the app.', minVersionCode: s.minVersionCode });
+        return res.status(426).json({ statusCode: 426, code: 'UPDATE_REQUIRED', message: s.message || 'Please update the app.', minVersionCode: s.minVersionCode, updateUrl: s.updateUrl });
       }
     }
     next();
