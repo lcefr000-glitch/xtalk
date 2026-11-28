@@ -72,9 +72,11 @@ export class PostsService implements OnModuleInit {
       savedIds = r.map((x) => x.post_id);
     }
     const tag = opts.tag?.replace(/[^\p{L}\p{N}_]/gu, '').slice(0, 40);
+    const hiddenPosts = opts.mine ? [] : await this.mod.hiddenIds(userId, 'POST');
     const posts = await this.prisma.post.findMany({
       where: {
         deletedAt: null,
+        ...(hiddenPosts.length ? { id: { notIn: hiddenPosts } } : {}),
         ...(savedIds ? { id: { in: savedIds } } : {}),
         ...(tag ? { body: { contains: '#' + tag, mode: 'insensitive' as const } } : {}),
         ...(opts.lang && /^[a-z]{2}$/.test(opts.lang) ? { languageCode: opts.lang } : {}),

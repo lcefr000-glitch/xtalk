@@ -1,3 +1,4 @@
+import * as argon2 from 'argon2';
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -429,6 +430,16 @@ export class ModerationService implements OnModuleInit {
     const id = randomUUID();
     await this.prisma.$executeRaw`INSERT INTO mod_appeals (id, user_id, penalty_id, text) VALUES (${id}, ${userId}, ${penaltyId}, ${t})`;
     return { id, status: 'OPEN' };
+  }
+
+  /** Appeal for someone who is signed out because of a suspension: proves the account with email and password. */
+  async appealLoggedOut(email: string, password: string, text: string) {
+    const u = await this.prisma.user.findUnique({ where: { email: String(email ?? '').trim().toLowerCase() } });
+    const ok = u ? await argon2.verify(u.passwordHash, String(password ?? '')).catch(() => false) : false;
+    if (!u || !ok) throw new ForbiddenException('Invalid credentials');
+    const p = await this.prisma.$queryRaw<{ id: string }[]>`SELECT id FROM mod_penalties WHERE user_id = ${u.id} AND active AND kind IN ('TEMP_SUSPEND','PERM_BAN','FEATURE_MUTE') ORDER BY created_at DESC LIMIT 1`;
+    if (!p[0]) throw new BadRequestException('There is nothing to appeal on this account');
+    return this.appeal(u.id, p[0].id, text);
   }
 
   async mute(userId: string, targetId: string) {

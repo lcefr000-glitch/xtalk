@@ -1,4 +1,6 @@
 import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { Public } from '../../common/decorators/public.decorator';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModerationService } from './moderation.service';
 
@@ -6,6 +8,9 @@ import { ModerationService } from './moderation.service';
 @Controller('moderation')
 export class ModerationController {
   constructor(private readonly mod: ModerationService) {}
+
+  @Public() @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Post('appeals/signed-out') appealOut(@Body() b: { email?: string; password?: string; text?: string }) { return this.mod.appealLoggedOut(b?.email ?? '', b?.password ?? '', b?.text ?? ''); }
 
   @Get('notices') notices(@CurrentUser() u: AuthUser) { return this.mod.myNotices(u.id); }
   @Post('notices/read') read(@CurrentUser() u: AuthUser) { return this.mod.readNotices(u.id); }
