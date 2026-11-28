@@ -29,6 +29,36 @@ export class AdminXController {
     try { await this.prisma.moderationAction.create({ data: { adminId, action: 'WARN', targetId: adminId, notes: `${action}: ${notes}`.slice(0, 500) } }); } catch { /* best effort */ }
   }
 
+  private async exportTables(): Promise<string[]> {
+    const r: any[] = await this.prisma.$queryRawUnsafe(`SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' ORDER BY table_name`);
+    return r.map((x) => String(x.table_name));
+  }
+
+  /** Per-table row count and content checksum, used to verify a backup or a move. No row data. */
+  @Get('export/summary')
+  async exportSummary(@Req() req: any) {
+    owner(req);
+    const out: Record<string, { rows: number; md5: string }> = {};
+    for (const t of await this.exportTables()) {
+      const r: any[] = await this.prisma.$queryRawUnsafe(`SELECT count(*)::int AS n, md5(coalesce(string_agg(x::text, '' ORDER BY x::text), '')) AS m FROM "${t}" x`);
+      out[t] = { rows: r[0].n, md5: r[0].m };
+    }
+    return { tables: out, takenAt: new Date().toISOString() };
+  }
+
+  /** One page of a table as JSON. Columns that look like secrets (passwords, hashes, tokens, codes, keys) are replaced with "[redacted]". */
+  @Get('export/table/:name')
+  async exportTable(@Req() req: any, @Param('name') name: string, @Query('offset') offset?: string, @Query('limit') limit?: string) {
+    owner(req);
+    if (!(await this.exportTables()).includes(name)) throw new NotFoundException('Unknown table');
+    const off = Math.max(parseInt(offset ?? '0', 10) || 0, 0);
+    const n = Math.min(Math.max(parseInt(limit ?? '500', 10) || 500, 1), 1000);
+    const rows: any[] = await this.prisma.$queryRawUnsafe(`SELECT row_to_json(x) AS j FROM "${name}" x ORDER BY x::text OFFSET ${off} LIMIT ${n}`);
+    const bad = /pass|hash|token|secret|refresh|otp|code|key|salt/i;
+    const clean = rows.map((r) => { const j = r.j; for (const k of Object.keys(j)) if (bad.test(k) && j[k] != null) j[k] = '[redacted]'; return j; });
+    return { table: name, offset: off, count: clean.length, rows: clean };
+  }
+
   /** Newest registrations first. Pass before=<ISO createdAt of the last row> to page, or after=<ISO> to poll for new ones. */
   @Get('signups')
   async signups(@Req() req: any, @Query('after') after?: string, @Query('before') before?: string, @Query('limit') limit?: string) {
