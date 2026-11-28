@@ -119,7 +119,7 @@ export class LiveService implements OnModuleInit {
     const cat = q.category ?? null;
     return this.prisma.$queryRaw<unknown[]>`
       SELECT s.id, s.title, s.description, s.category, s.language_code, s.current_viewers, s.peak_viewers, s.started_at,
-             u.id AS host_id, u.username AS host_username, p."displayName" AS host_display_name, p."photoUrl" AS host_photo_url
+             u.id AS host_id, u.username AS host_username, p."displayName" AS host_display_name, p."photoUrl" AS host_photo_url, p."country" AS host_country
       FROM live_streams s
       JOIN "User" u ON u.id = s.host_id
       LEFT JOIN "Profile" p ON p."userId" = u.id
@@ -135,7 +135,7 @@ export class LiveService implements OnModuleInit {
   async get(id: string) {
     this.ensureReady();
     const rows = await this.prisma.$queryRaw<Record<string, unknown>[]>`
-      SELECT s.*, u.username AS host_username, p."displayName" AS host_display_name, p."photoUrl" AS host_photo_url
+      SELECT s.*, u.username AS host_username, p."displayName" AS host_display_name, p."photoUrl" AS host_photo_url, p."country" AS host_country
       FROM live_streams s
       JOIN "User" u ON u.id = s.host_id
       LEFT JOIN "Profile" p ON p."userId" = u.id
