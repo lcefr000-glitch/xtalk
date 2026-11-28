@@ -3,6 +3,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { SafetyService } from '../safety/safety.service';
 import { CreateRoomDto, StartCallDto } from './dto/voice.dto';
 import { LiveKitService } from './livekit.service';
+import { SHOP_ITEMS } from '../shop/shop.catalog';
 
 /**
  * Voice rooms + 1:1 calls: full state/signaling layer.
@@ -40,6 +41,7 @@ export class VoiceService implements OnModuleInit {
       await this.prisma.$executeRawUnsafe(
         `CREATE TABLE IF NOT EXISTS voice_room_themes (room_id TEXT PRIMARY KEY, theme TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
       );
+      await this.prisma.$executeRawUnsafe(`ALTER TABLE voice_room_themes ADD COLUMN IF NOT EXISTS set_by TEXT`);
       this.themesReady = true;
       this.log.log('voice room themes table ready');
     } catch (e) {
@@ -48,11 +50,17 @@ export class VoiceService implements OnModuleInit {
   }
 
   async setTheme(hostId: string, roomId: string, theme: string) {
-    if (!ROOM_THEMES.includes(theme)) throw new BadRequestException('Unknown theme');
+    const isBg = SHOP_ITEMS.some((i) => i.id === theme && i.kind === 'BACKGROUND');
+    if (!isBg && !ROOM_THEMES.includes(theme)) throw new BadRequestException('Unknown theme');
     await this.requireHost(hostId, roomId);
     if (!this.themesReady) throw new BadRequestException('Themes are not available right now');
-    await this.prisma.$executeRaw`INSERT INTO voice_room_themes (room_id, theme) VALUES (${roomId}, ${theme})
-      ON CONFLICT (room_id) DO UPDATE SET theme = ${theme}, updated_at = now()`;
+    if (isBg) {
+      // Shop backgrounds need an active purchase by the host.
+      const own = await this.prisma.$queryRaw<{ n: number }[]>`SELECT 1 AS n FROM user_cosmetics WHERE user_id = ${hostId} AND item_id = ${theme} AND (expires_at IS NULL OR expires_at > now())`.catch(() => []);
+      if (!own.length) throw new BadRequestException('Buy this background first');
+    }
+    await this.prisma.$executeRaw`INSERT INTO voice_room_themes (room_id, theme, set_by) VALUES (${roomId}, ${theme}, ${hostId})
+      ON CONFLICT (room_id) DO UPDATE SET theme = ${theme}, set_by = ${hostId}, updated_at = now()`;
     return { success: true, theme };
   }
 
@@ -67,8 +75,14 @@ export class VoiceService implements OnModuleInit {
   private async themeOf(roomId: string): Promise<string> {
     if (!this.themesReady) return 'default';
     try {
-      const rows = await this.prisma.$queryRaw<{ theme: string }[]>`SELECT theme FROM voice_room_themes WHERE room_id = ${roomId}`;
-      return rows[0]?.theme ?? 'default';
+      const rows = await this.prisma.$queryRaw<{ theme: string; set_by: string | null }[]>`SELECT theme, set_by FROM voice_room_themes WHERE room_id = ${roomId}`;
+      const t = rows[0]?.theme ?? 'default';
+      if (t.startsWith('bg_')) {
+        // A shop background only shows while the host who set it still owns it.
+        const own = rows[0]?.set_by ? await this.prisma.$queryRaw<{ n: number }[]>`SELECT 1 AS n FROM user_cosmetics WHERE user_id = ${rows[0].set_by} AND item_id = ${t} AND (expires_at IS NULL OR expires_at > now())` : [];
+        return own.length ? t : 'default';
+      }
+      return t;
     } catch { return 'default'; }
   }
   /** Live queue of listeners asking for the stage (room id -> user ids). In memory on purpose. */
