@@ -17,8 +17,20 @@ export class RemoteService implements OnModuleInit {
     try {
       await this.prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS custom_shop_items (id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, name_ar TEXT NOT NULL DEFAULT '', price7 INT NOT NULL, price30 INT NOT NULL, mime TEXT NOT NULL, img BYTEA NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
       await this.prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS app_remote_config (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+      await this.migrateBackgroundIds();
       await this.reload();
     } catch (e) { this.log.error('remote init failed: ' + (e as Error).message); }
+  }
+
+  /** The app only draws room backgrounds whose id starts with bg_, so custom backgrounds get that prefix (one-time rename of earlier cx_ ids, including purchases and room themes). */
+  private async migrateBackgroundIds() {
+    const rows = await this.prisma.$queryRawUnsafe<{ id: string }[]>(`SELECT id FROM custom_shop_items WHERE kind = 'BACKGROUND' AND id LIKE 'cx\\_%'`);
+    for (const r of rows) {
+      const nid = 'bg_' + r.id;
+      await this.prisma.$executeRaw`UPDATE custom_shop_items SET id = ${nid} WHERE id = ${r.id}`;
+      await this.prisma.$executeRaw`UPDATE user_cosmetics SET item_id = ${nid} WHERE item_id = ${r.id}`.catch(() => 0);
+      await this.prisma.$executeRaw`UPDATE voice_room_themes SET theme = ${nid} WHERE theme = ${r.id}`.catch(() => 0);
+    }
   }
 
   /** Mirrors the stored custom items into the live shop list so buy, equip and room themes accept them. */
@@ -38,7 +50,7 @@ export class RemoteService implements OnModuleInit {
     if (!d.img?.length || d.img.length > 2_000_000) throw new BadRequestException('Image must be under 2 MB');
     const name = d.name.trim().slice(0, 40); if (!name) throw new BadRequestException('Name is required');
     if (!(d.price7 > 0) || !(d.price30 > 0)) throw new BadRequestException('Prices must be above 0');
-    const id = 'cx_' + randomBytes(5).toString('hex');
+    const id = (d.kind === 'BACKGROUND' ? 'bg_cx_' : 'cx_') + randomBytes(5).toString('hex');
     await this.prisma.$executeRaw`INSERT INTO custom_shop_items (id, kind, name, name_ar, price7, price30, mime, img) VALUES (${id}, ${d.kind}, ${name}, ${d.nameAr.trim().slice(0, 40)}, ${Math.floor(d.price7)}, ${Math.floor(d.price30)}, ${d.mime}, ${d.img})`;
     await this.reload();
     return { id };
