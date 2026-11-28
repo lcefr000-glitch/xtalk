@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { ForbiddenException, Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator';
 import { AdminGuard } from './admin.guard';
@@ -12,6 +12,12 @@ import { ModerationService } from '../moderation/moderation.service';
 export class AdminModerationController {
   constructor(private readonly mod: ModerationService) {}
 
+  /** Runs the real pre-send check for a user and text, without saving any message. Owner only. */
+  @Post('test') async test(@Req() req: any, @Body() b: any) {
+    if (req.admin.role !== 'SUPER_ADMIN') throw new ForbiddenException('Owner only');
+    try { await this.mod.checkText(String(b.userId), (b.type ?? 'MESSAGE') as any, String(b.text ?? ''), String(b.target ?? 'test')); return { allowed: true }; }
+    catch (e: any) { return { allowed: false, status: e?.getStatus?.() ?? 500, message: e?.message }; }
+  }
   @Get('stats') stats() { return this.mod.stats(); }
   @Get('violations') violations(@Query() q: any) { return this.mod.violations({ user: q.user, status: q.status, risk: q.risk, limit: q.limit ? Number(q.limit) : undefined }); }
   @Get('queue') queue() { return this.mod.reviewQueue(); }
