@@ -9,8 +9,11 @@ export class AiService {
 
   constructor(private readonly gemini: GeminiClient) {}
 
-  status() {
-    return { enabled: this.gemini.isConfigured(), dailyLimit: DAILY_LIMIT };
+  status(userId?: string) {
+    const day = new Date().toISOString().slice(0, 10);
+    const u = userId ? this.usage.get(userId) : undefined;
+    const used = u && u.day === day ? u.n : 0;
+    return { enabled: this.gemini.isConfigured(), dailyLimit: DAILY_LIMIT, used, remaining: Math.max(0, DAILY_LIMIT - used) };
   }
 
   /** Simple per-user daily cap so the free tier is not drained by one account. */

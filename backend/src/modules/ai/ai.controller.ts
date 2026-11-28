@@ -30,8 +30,8 @@ export class AiController {
   constructor(private readonly ai: AiService) {}
 
   @Get('status')
-  status() {
-    return this.ai.status();
+  status(@CurrentUser() user: AuthUser) {
+    return this.ai.status(user.id);
   }
 
   @Post('correct')
