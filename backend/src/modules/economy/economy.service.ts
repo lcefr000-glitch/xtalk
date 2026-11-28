@@ -300,12 +300,19 @@ export class EconomyService implements OnModuleInit {
     }
     if (receiverId === senderId) throw new BadRequestException('You cannot gift yourself');
     const room = await this.prisma.voiceRoom.findUnique({ where: { id: roomId }, select: { id: true, isLive: true } });
-    if (!room || !room.isLive) throw new BadRequestException('Room is not live');
-    const members = await this.prisma.voiceRoomParticipant.findMany({
-      where: { roomId, userId: { in: [senderId, receiverId] }, leftAt: null },
-      select: { userId: true },
-    });
-    if (members.length < 2) throw new BadRequestException('Both people must be in the room');
+    if (room) {
+      if (!room.isLive) throw new BadRequestException('Room is not live');
+      const members = await this.prisma.voiceRoomParticipant.findMany({
+        where: { roomId, userId: { in: [senderId, receiverId] }, leftAt: null },
+        select: { userId: true },
+      });
+      if (members.length < 2) throw new BadRequestException('Both people must be in the room');
+    } else {
+      // A live stream: gifts go to its host only.
+      const ls = await this.prisma.$queryRaw<{ host_id: string }[]>`SELECT host_id FROM live_streams WHERE id = ${roomId} AND status = 'LIVE'`.catch(() => []);
+      if (!ls[0]) throw new BadRequestException('Room is not live');
+      if (ls[0].host_id !== receiverId) throw new BadRequestException('Live gifts go to the host');
+    }
     const id = (await import('crypto')).randomUUID();
     // One transaction: deduction, gift record and the receiver's diamonds either all happen or none do.
     await this.prisma.$transaction(async (tx) => {
@@ -332,8 +339,11 @@ export class EconomyService implements OnModuleInit {
   async roomGifts(roomId: string, sinceIso?: string, viewerId?: string) {
     this.ensureReady();
     if (viewerId) {
-      const inRoom = await this.prisma.voiceRoomParticipant.findFirst({ where: { roomId, userId: viewerId, leftAt: null }, select: { id: true } });
-      if (!inRoom) throw new ForbiddenException('Join the room first');
+      const isLive = (await this.prisma.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS n FROM live_streams WHERE id = ${roomId}`.catch(() => [{ n: 0 }]))[0]?.n > 0;
+      if (!isLive) {
+        const inRoom = await this.prisma.voiceRoomParticipant.findFirst({ where: { roomId, userId: viewerId, leftAt: null }, select: { id: true } });
+        if (!inRoom) throw new ForbiddenException('Join the room first');
+      }
     }
     const since = sinceIso && !Number.isNaN(Date.parse(sinceIso)) ? new Date(sinceIso) : new Date(Date.now() - 60_000);
     const rows = await this.prisma.$queryRaw<

@@ -625,11 +625,22 @@ export class VoiceService implements OnModuleInit {
     });
   }
 
-  callHistory(userId: string) {
-    return this.prisma.call.findMany({
+  async callHistory(userId: string) {
+    const rows = await this.prisma.call.findMany({
       where: { OR: [{ callerId: userId }, { calleeId: userId }] },
       orderBy: { createdAt: 'desc' },
       take: 50,
+    });
+    const peerIds = [...new Set(rows.map((c) => (c.callerId === userId ? c.calleeId : c.callerId)))];
+    const users = peerIds.length
+      ? await this.prisma.user.findMany({ where: { id: { in: peerIds } }, select: { id: true, username: true, profile: { select: { displayName: true, photoUrl: true, country: true } } } })
+      : [];
+    const byId = new Map(users.map((u) => [u.id, u]));
+    return rows.map((c) => {
+      const out = c.callerId === userId;
+      const pid = out ? c.calleeId : c.callerId;
+      const u = byId.get(pid);
+      return { ...c, direction: out ? 'OUTGOING' : 'INCOMING', peer: { id: pid, username: u?.username ?? '', displayName: u?.profile?.displayName ?? null, photoUrl: u?.profile?.photoUrl ?? null, country: u?.profile?.country ?? null } };
     });
   }
 }
