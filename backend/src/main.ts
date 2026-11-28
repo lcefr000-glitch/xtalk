@@ -21,7 +21,7 @@ async function bootstrap() {
   if (process.env.TRUST_PROXY) app.set('trust proxy', parseInt(process.env.TRUST_PROXY, 10) || 1);
   else if (isProd) app.set('trust proxy', 1);
   app.use(helmet());
-  app.use('/api/v1/media', raw({ type: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'audio/mp4'], limit: '6mb' }));
+  app.use('/api/v1/media', raw({ type: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'audio/mp4', 'video/mp4', 'application/pdf', 'application/zip', 'text/plain'], limit: '12mb' }));
   app.use(controlMiddleware(app.get(ControlService)));
   // Mobile client: allow all origins in dev. Restrict to known origins in production.
   // Optional allow-list: CORS_ORIGINS=https://a.com,https://b.com (the mobile app does not need CORS).

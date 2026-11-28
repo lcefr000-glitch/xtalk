@@ -25,6 +25,7 @@ export class MediaController {
   async get(@Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
     const f = await this.media.get(id);
     res.setHeader('Content-Type', f.mime);
+    if (f.mime === 'application/zip' || f.mime === 'text/plain') res.setHeader('Content-Disposition', 'attachment');
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.end(f.data);
   }

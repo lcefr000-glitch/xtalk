@@ -1,12 +1,17 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
-const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'audio/mp4'];
+const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'audio/mp4', 'video/mp4', 'application/pdf', 'application/zip', 'text/plain'];
+const MAX_FILE_BYTES = 12 * 1024 * 1024;
 const MAX_AUDIO_BYTES = 2 * 1024 * 1024;
 const MAX_BYTES = 6 * 1024 * 1024;
 
 /** Check the real file signature so a non-image can't be stored under an image type. */
 function sniffOk(mime: string, d: Buffer): boolean {
+  if (mime === 'video/mp4') return d.length > 12 && d.subarray(4, 8).toString('latin1') === 'ftyp';
+  if (mime === 'application/pdf') return d.length > 5 && d.subarray(0, 5).toString('latin1') === '%PDF-';
+  if (mime === 'application/zip') return d.length > 4 && d[0] === 0x50 && d[1] === 0x4b;
+  if (mime === 'text/plain') return d.length > 0 && !d.subarray(0, Math.min(d.length, 4096)).includes(0);
   if (mime === 'audio/mp4') return d.length > 12 && d.subarray(4, 8).toString('latin1') === 'ftyp';
   if (mime === 'image/jpeg') return d.length > 3 && d[0] === 0xff && d[1] === 0xd8 && d[2] === 0xff;
   if (mime === 'image/png') return d.length > 8 && d.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
@@ -46,11 +51,12 @@ export class MediaService implements OnModuleInit {
 
   async save(ownerId: string, mime: string, data: Buffer) {
     const m = (mime || '').split(';')[0].trim().toLowerCase();
-    if (!ALLOWED.includes(m)) throw new BadRequestException('Only JPEG, PNG, WEBP or GIF images or AAC voice clips are allowed');
+    if (!ALLOWED.includes(m)) throw new BadRequestException('This file type is not allowed');
     if (m === 'audio/mp4' && data.length > MAX_AUDIO_BYTES) throw new BadRequestException('Voice clip too large (max 2 MB)');
     if (!Buffer.isBuffer(data) || data.length === 0) throw new BadRequestException('Empty upload');
-    if (data.length > MAX_BYTES) throw new BadRequestException('Image too large (max 6 MB)');
-    if (!sniffOk(m, data)) throw new BadRequestException('File content does not match an image type');
+    const isFile = ['video/mp4', 'application/pdf', 'application/zip', 'text/plain'].includes(m);
+    if (data.length > (isFile ? MAX_FILE_BYTES : MAX_BYTES)) throw new BadRequestException(isFile ? 'File too large (max 12 MB)' : 'Image too large (max 6 MB)');
+    if (!sniffOk(m, data)) throw new BadRequestException('File content does not match its type');
     const q = await this.prisma.$queryRawUnsafe<{ n: number; b: number }[]>(
       `SELECT COUNT(*)::int AS n, COALESCE(SUM(byte_size),0)::bigint::float8 AS b FROM media_files WHERE owner_id = $1 AND created_at > now() - interval '1 day'`, ownerId);
     if ((q[0]?.n ?? 0) >= 150 || (q[0]?.b ?? 0) > 150 * 1024 * 1024) throw new BadRequestException('Daily upload limit reached');
