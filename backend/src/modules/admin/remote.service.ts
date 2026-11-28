@@ -2,6 +2,9 @@ import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/c
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { SHOP_ITEMS, ShopItem } from '../shop/shop.catalog';
+import { GIFTS } from '../economy/economy.service';
+
+const FX = ['float', 'rain', 'pulse', 'bounce', 'zoom', 'fly', 'sparkle', 'shake', 'wave', 'spiral', 'fireworks'];
 
 const KINDS = ['FRAME', 'BACKGROUND'];
 const MIMES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -11,12 +14,15 @@ const MIMES = ['image/png', 'image/jpeg', 'image/webp'];
 export class RemoteService implements OnModuleInit {
   private readonly log = new Logger('Remote');
   private custom = new Set<string>();
+  private customGifts = new Set<string>();
   constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit() {
     try {
       await this.prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS custom_shop_items (id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, name_ar TEXT NOT NULL DEFAULT '', price7 INT NOT NULL, price30 INT NOT NULL, mime TEXT NOT NULL, img BYTEA NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
       await this.prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS app_remote_config (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+      await this.prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS custom_gifts (id TEXT PRIMARY KEY, name TEXT NOT NULL, name_ar TEXT NOT NULL DEFAULT '', emoji TEXT NOT NULL, price INTEGER NOT NULL, fx TEXT NOT NULL, min_level INTEGER, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+      await this.reloadGifts();
       await this.migrateBackgroundIds();
       await this.reload();
     } catch (e) { this.log.error('remote init failed: ' + (e as Error).message); }
@@ -43,6 +49,35 @@ export class RemoteService implements OnModuleInit {
       SHOP_ITEMS.unshift(it); this.custom.add(r.id);
     }
   }
+
+  async reloadGifts() {
+    const rows = await this.prisma.$queryRawUnsafe<{ id: string; name: string; name_ar: string; emoji: string; price: number; fx: string; min_level: number | null }[]>(`SELECT id, name, name_ar, emoji, price, fx, min_level FROM custom_gifts ORDER BY created_at`);
+    for (const id of this.customGifts) { const i = GIFTS.findIndex((x) => x.id === id); if (i >= 0) GIFTS.splice(i, 1); }
+    this.customGifts = new Set();
+    for (const r of rows) { GIFTS.push({ id: r.id, name: r.name, nameAr: r.name_ar, emoji: r.emoji, price: r.price, fx: r.fx, ...(r.min_level ? { minLevel: r.min_level } : {}) }); this.customGifts.add(r.id); }
+  }
+
+  async addGift(d: { name: string; nameAr: string; emoji: string; price: number; fx: string; minLevel?: number }) {
+    const name = String(d.name ?? '').trim().slice(0, 40); if (!name) throw new BadRequestException('Name is required');
+    const emoji = String(d.emoji ?? '').trim(); if (!emoji || [...emoji].length > 8) throw new BadRequestException('Emoji is required (1 to 8 characters)');
+    const price = Math.floor(Number(d.price)); if (!(price > 0) || price > 1_000_000) throw new BadRequestException('Price must be between 1 and 1000000 coins');
+    if (!FX.includes(d.fx)) throw new BadRequestException('Style must be one of: ' + FX.join(', '));
+    const ml = d.minLevel ? Math.floor(Number(d.minLevel)) : null;
+    if (ml !== null && !(ml >= 1 && ml <= 100)) throw new BadRequestException('Level must be 1 to 100');
+    const id = 'gx_' + randomBytes(5).toString('hex');
+    await this.prisma.$executeRaw`INSERT INTO custom_gifts (id, name, name_ar, emoji, price, fx, min_level) VALUES (${id}, ${name}, ${String(d.nameAr ?? '').trim().slice(0, 40)}, ${emoji}, ${price}, ${d.fx}, ${ml})`;
+    await this.reloadGifts();
+    return { id };
+  }
+
+  async removeGift(id: string) {
+    await this.prisma.$executeRaw`DELETE FROM custom_gifts WHERE id = ${id}`;
+    await this.reloadGifts();
+    return { ok: true };
+  }
+
+  listGifts() { return GIFTS.filter((g) => this.customGifts.has(g.id)); }
+  giftStyles() { return FX; }
 
   async addItem(d: { kind: string; name: string; nameAr: string; price7: number; price30: number; mime: string; img: Buffer }) {
     if (!KINDS.includes(d.kind)) throw new BadRequestException('Kind must be FRAME or BACKGROUND');

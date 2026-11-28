@@ -36,6 +36,12 @@ export class AdminRemoteController {
   @Get('items') items() { return this.remote.listItems(); }
   @Delete('items/:id') del(@Param('id') id: string) { return this.remote.removeItem(id); }
 
+  @Get('gifts') gifts() { return { gifts: this.remote.listGifts(), styles: this.remote.giftStyles() }; }
+  @Delete('gifts/:id') delGift(@Param('id') id: string) { return this.remote.removeGift(id); }
+  @Post('gifts') addGift(@Body() b: { name?: string; nameAr?: string; emoji?: string; price?: number; fx?: string; minLevel?: number }) {
+    return this.remote.addGift({ name: String(b?.name ?? ''), nameAr: String(b?.nameAr ?? ''), emoji: String(b?.emoji ?? ''), price: Number(b?.price), fx: String(b?.fx ?? ''), minLevel: b?.minLevel });
+  }
+
   /** Image bytes in the body, the rest in the query. */
   @Post('items')
   add(@Req() req: any, @Query() q: { kind?: string; name?: string; nameAr?: string; price7?: string; price30?: string }) {

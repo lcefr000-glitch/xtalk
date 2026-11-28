@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, NotFoundException, Param, ParseUUIDPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, NotFoundException, Param, ParseUUIDPipe, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { Public } from '../../common/decorators/public.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -47,6 +47,19 @@ export class AdminXController {
     return { total, rows };
   }
 
+  /** Profile photo bytes for the X Admin app (photos are stored as data links or web links). */
+  @Get('users/:id/photo')
+  async photo(@Req() req: any, @Param('id', ParseUUIDPipe) id: string, @Res() res: any) {
+    owner(req);
+    const r = await this.prisma.profile.findUnique({ where: { userId: id }, select: { photoUrl: true } });
+    const u = r?.photoUrl;
+    if (!u) throw new NotFoundException('No photo');
+    const m = /^data:([\w/+.-]+);base64,(.*)$/s.exec(u);
+    if (m) { res.set({ 'Content-Type': m[1], 'Cache-Control': 'private, max-age=300' }); return res.send(Buffer.from(m[2], 'base64')); }
+    if (u.startsWith('https://')) return res.json({ url: u });
+    throw new NotFoundException('No photo');
+  }
+
   @Get('users/:id')
   async detail(@Req() req: any, @Param('id', ParseUUIDPipe) id: string) {
     owner(req); await this.ensure();
@@ -64,7 +77,12 @@ export class AdminXController {
     const wallet = await one(`SELECT coins, total_spent, (SELECT COALESCE(points,0)::float/10 FROM economy_diamonds WHERE user_id=$1) AS diamonds FROM economy_wallets WHERE user_id=$1`);
     const sub = await this.prisma.subscription.findUnique({ where: { userId: id }, select: { plan: true, status: true, expiresAt: true } });
     const snap = await one(`SELECT deleted_at, restored_at, email, username FROM admin_deleted_accounts WHERE user_id=$1`);
-    return { user: { ...u, hasPhoto }, counts, wallet, vip: sub, adminDeleteSnapshot: snap && !snap.restored_at ? snap : null };
+    const extra = await one(`SELECT
+      (SELECT count(*)::int FROM gift_transactions WHERE sender_id=$1) AS gifts_sent,
+      (SELECT count(*)::int FROM gift_transactions WHERE receiver_id=$1) AS gifts_received,
+      (SELECT count(*)::int FROM "VoiceRoomParticipant" WHERE "userId"=$1) AS room_joins,
+      (SELECT count(*)::int FROM user_cosmetics WHERE user_id=$1) AS cosmetics_owned`);
+    return { user: { ...u, hasPhoto }, extra, counts, wallet, vip: sub, adminDeleteSnapshot: snap && !snap.restored_at ? snap : null };
   }
 
   /** Reversible delete: saves email/username/password hash, frees them, hides posts. Restore brings everything back. */
