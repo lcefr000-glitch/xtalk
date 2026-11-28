@@ -12,7 +12,9 @@ export function controlMiddleware(control: ControlService) {
     if (s.lockdown) {
       return res.status(503).json({ statusCode: 503, code: 'LOCKED', message: s.message || 'The service is temporarily unavailable.' });
     }
-    if (s.minVersionCode > 0) {
+    // Public artwork is fetched by plain image loaders that cannot send the version header.
+    const art = req.method === 'GET' && p.startsWith('/api/v1/app/shop-img/');
+    if (s.minVersionCode > 0 && !art) {
       const v = parseInt(String(req.headers['x-app-version'] ?? ''), 10);
       if (!Number.isFinite(v) || v < s.minVersionCode) {
         return res.status(426).json({ statusCode: 426, code: 'UPDATE_REQUIRED', message: s.message || 'Please update the app.', minVersionCode: s.minVersionCode, updateUrl: s.updateUrl });
