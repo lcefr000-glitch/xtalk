@@ -66,6 +66,17 @@ export class ChatExtrasController {
     return this.extras.togglePin(user.id, id);
   }
 
+  @Get('favorites')
+  favorites(@CurrentUser() user: AuthUser) {
+    return this.extras.favorites(user.id);
+  }
+
+  @Post('favorites/:userId')
+  @HttpCode(200)
+  toggleFavorite(@CurrentUser() user: AuthUser, @Param('userId') userId: string) {
+    return this.extras.toggleFavorite(user.id, userId);
+  }
+
   @Get('flags')
   flags(@CurrentUser() user: AuthUser) {
     return this.extras.flags(user.id);

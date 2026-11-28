@@ -48,6 +48,13 @@ export class ChatExtrasService implements OnModuleInit {
           PRIMARY KEY (user_id, message_id)
         )`,
       );
+      await this.prisma.$executeRawUnsafe(
+        `CREATE TABLE IF NOT EXISTS user_favorites (
+          user_id TEXT NOT NULL, fav_id TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (user_id, fav_id)
+        )`,
+      );
       this.ready = true;
       this.log.log('chat extras tables ready');
     } catch (e) {
@@ -143,6 +150,25 @@ export class ChatExtrasService implements OnModuleInit {
     const del = await this.prisma.$executeRaw`DELETE FROM chat_pins WHERE user_id = ${userId} AND conversation_id = ${conversationId}`;
     if (del === 0) await this.prisma.$executeRaw`INSERT INTO chat_pins (user_id, conversation_id) VALUES (${userId}, ${conversationId}) ON CONFLICT DO NOTHING`;
     return { pinned: del === 0 };
+  }
+
+  async favorites(userId: string) {
+    this.ensureReady();
+    const rows = await this.prisma.$queryRaw<{ id: string; username: string; displayName: string | null; photoUrl: string | null; country: string | null }[]>`
+      SELECT u.id, u.username, p."displayName", p."photoUrl", p.country
+      FROM user_favorites f JOIN "User" u ON u.id = f.fav_id LEFT JOIN "Profile" p ON p."userId" = u.id
+      WHERE f.user_id = ${userId} AND u."deletedAt" IS NULL ORDER BY f.created_at DESC LIMIT 200`;
+    return { users: rows };
+  }
+
+  async toggleFavorite(userId: string, otherId: string) {
+    this.ensureReady();
+    if (otherId === userId) throw new BadRequestException('You cannot favourite yourself');
+    const ex = await this.prisma.$queryRaw<{ id: string }[]>`SELECT id FROM "User" WHERE id = ${otherId} AND "deletedAt" IS NULL`;
+    if (ex.length === 0) throw new NotFoundException('User not found');
+    const del = await this.prisma.$executeRaw`DELETE FROM user_favorites WHERE user_id = ${userId} AND fav_id = ${otherId}`;
+    if (del === 0) await this.prisma.$executeRaw`INSERT INTO user_favorites (user_id, fav_id) VALUES (${userId}, ${otherId}) ON CONFLICT DO NOTHING`;
+    return { favorite: del === 0 };
   }
 
   async flags(userId: string) {
