@@ -1,5 +1,6 @@
 import { PrivacyService } from '../privacy/privacy.service';
 import { ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
+import { ModerationService } from '../moderation/moderation.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { SafetyService } from '../safety/safety.service';
 import { CreateCommentDto, CreatePostDto } from './dto/post.dto';
@@ -28,10 +29,12 @@ export class PostsService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly safety: SafetyService,
     private readonly privacy: PrivacyService,
+    private readonly mod: ModerationService,
   ) {}
 
   async create(userId: string, dto: CreatePostDto) {
-    return this.prisma.post.create({
+    if (dto.body) await this.mod.checkText(userId, 'POST', dto.body, 'post'); else await this.mod.assertCanSpeak(userId);
+    const created = await this.prisma.post.create({
       data: {
         authorId: userId,
         body: dto.body,
@@ -42,6 +45,8 @@ export class PostsService implements OnModuleInit {
       },
       include: { images: true },
     });
+    this.mod.scanLater(userId, 'POST', created.id, created.body ?? '', created.images.map((i) => i.url));
+    return created;
   }
 
   /**
@@ -59,6 +64,7 @@ export class PostsService implements OnModuleInit {
     for (const b of blocked) {
       excluded.add(b.blockerId === userId ? b.blockedId : b.blockerId);
     }
+    if (!opts.mine) for (const id of await this.mod.mutedIds(userId)) excluded.add(id);
     let savedIds: string[] | undefined;
     if (opts.saved) {
       if (!this.bmReady) throw new ServiceUnavailableException('Not available right now');
@@ -158,6 +164,7 @@ export class PostsService implements OnModuleInit {
   }
 
   async comment(userId: string, postId: string, dto: CreateCommentDto) {
+    await this.mod.checkText(userId, 'COMMENT', dto.body ?? '', postId);
     const target = await this.getOne(postId);
     const authorId = (target as { authorId?: string }).authorId;
     if (authorId && authorId !== userId && (await this.safety.isBlockedEitherWay(userId, authorId))) {
@@ -190,6 +197,7 @@ export class PostsService implements OnModuleInit {
         },
       });
     }
+    this.mod.scanLater(userId, 'COMMENT', comment.id, comment.body ?? '');
     return comment;
   }
 

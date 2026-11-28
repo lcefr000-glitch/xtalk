@@ -6,6 +6,7 @@ import {
   OnModuleInit,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { ModerationService } from '../moderation/moderation.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { SafetyService } from '../safety/safety.service';
 import { LiveKitService } from '../voice/livekit.service';
@@ -17,7 +18,7 @@ export class LiveService implements OnModuleInit {
   /** Plain class, no injected deps - reuse the voice module's LiveKit wrapper. */
   private readonly livekit = new LiveKitService();
 
-  constructor(private readonly prisma: PrismaService, private readonly safety: SafetyService) {}
+  constructor(private readonly prisma: PrismaService, private readonly safety: SafetyService, private readonly mod: ModerationService) {}
 
   /** Additive, idempotent bootstrap: CREATE TABLE IF NOT EXISTS + enum additions only. */
   async onModuleInit() {
@@ -277,10 +278,12 @@ export class LiveService implements OnModuleInit {
   }
 
   async saveMessage(streamId: string, userId: string, body: string) {
+    await this.mod.checkText(userId, 'LIVE', body, streamId);
     const id = crypto.randomUUID();
     await this.prisma.$executeRaw`
       INSERT INTO live_stream_messages (id, stream_id, user_id, body)
       VALUES (${id}, ${streamId}, ${userId}, ${body})`;
+    this.mod.scanLater(userId, 'LIVE', id, body);
     return { id, streamId, userId, body, createdAt: new Date().toISOString() };
   }
 

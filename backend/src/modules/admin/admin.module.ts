@@ -1,3 +1,4 @@
+import { AdminModerationController } from './admin-moderation.controller';
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -22,7 +23,7 @@ import { AdminService } from './admin.service';
       }),
     }),
   ],
-  controllers: [AdminController, AdminXController, AdminControlController, AdminStoreController, AppRemoteController, AdminRemoteController],
+  controllers: [AdminModerationController, AdminController, AdminXController, AdminControlController, AdminStoreController, AppRemoteController, AdminRemoteController],
   providers: [AdminService, AdminGuard, RemoteService],
 })
 export class AdminModule {}

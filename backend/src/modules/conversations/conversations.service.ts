@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ModerationService } from '../moderation/moderation.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { SafetyService } from '../safety/safety.service';
 import { ProgressService } from '../progress/progress.service';
@@ -17,6 +18,7 @@ export class ConversationsService {
     private readonly safety: SafetyService,
     private readonly progress: ProgressService,
     private readonly push: PushService,
+    private readonly mod: ModerationService,
   ) {}
 
   /** Get-or-create the 1:1 conversation between two users. */
@@ -129,6 +131,10 @@ export class ConversationsService {
     if ((dto.type === 'IMAGE' || dto.type === 'VOICE') && (dto.attachments?.length ?? 0) === 0) {
       throw new BadRequestException(`${dto.type} messages need at least one attachment`);
     }
+    if (dto.type === 'TEXT' && dto.body) {
+      const ctx = await this.prisma.message.findMany({ where: { conversationId, deletedAt: null, body: { not: null } }, orderBy: { createdAt: 'desc' }, take: 4, select: { body: true, senderId: true } });
+      await this.mod.checkText(meId, 'MESSAGE', dto.body, conversationId, ctx.reverse().map((c) => (c.senderId === meId ? 'sender: ' : 'other: ') + (c.body ?? '')));
+    } else await this.mod.assertCanSpeak(meId);
     // Block check against every other member.
     const others = await this.prisma.conversationMember.findMany({
       where: { conversationId, leftAt: null, userId: { not: meId } },
@@ -178,6 +184,7 @@ export class ConversationsService {
     for (const o of others) void this.push.send(o.userId, 'X Talk', 'New message', { type: 'message', conversationId }).catch(() => undefined);
     // Learning stats: count sent messages (best effort, never blocks sending).
     this.progress.record(meId, { messagesSent: 1 }).catch(() => undefined);
+    this.mod.scanLater(meId, 'MESSAGE', message.id, message.body ?? '', (message.attachments ?? []).filter((a) => /^image\//.test(a.mimeType ?? '') || /\/media\//.test(a.url)).map((a) => a.url));
     return message;
   }
 
@@ -185,6 +192,7 @@ export class ConversationsService {
     const message = await this.prisma.message.findUnique({ where: { id: messageId } });
     if (!message || message.deletedAt) throw new NotFoundException('Message not found');
     if (message.senderId !== meId) throw new ForbiddenException('You can only edit your own messages');
+    await this.mod.checkText(meId, 'MESSAGE', dto.body, message.conversationId);
     return this.prisma.message.update({
       where: { id: messageId },
       data: { body: dto.body, editedAt: new Date() },

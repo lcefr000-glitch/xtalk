@@ -1,12 +1,13 @@
 import { PrivacyService } from '../privacy/privacy.service';
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ModerationService } from '../moderation/moderation.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { SafetyService } from '../safety/safety.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Injectable()
 export class ProfilesService {
-  constructor(private readonly prisma: PrismaService, private readonly safety: SafetyService, private readonly privacy: PrivacyService) {}
+  constructor(private readonly prisma: PrismaService, private readonly safety: SafetyService, private readonly privacy: PrivacyService, private readonly mod: ModerationService) {}
 
   async getMyProfile(userId: string) {
     const profile = await this.prisma.profile.findUnique({
@@ -27,6 +28,8 @@ export class ProfilesService {
   }
 
   async updateMyProfile(userId: string, dto: UpdateProfileDto) {
+    if (dto.displayName) await this.mod.checkText(userId, 'NAME', dto.displayName);
+    if (dto.bio) await this.mod.checkText(userId, 'NAME', dto.bio);
     if (dto.country !== undefined) {
       const cur = await this.prisma.profile.findUnique({ where: { userId }, select: { country: true } });
       if (cur?.country && cur.country !== dto.country) throw new ForbiddenException('Your country cannot be changed');
@@ -44,7 +47,9 @@ export class ProfilesService {
       ...(dto.showLastActive !== undefined ? { showLastActive: dto.showLastActive } : {}),
       ...(dto.profileIsPublic !== undefined ? { profileIsPublic: dto.profileIsPublic } : {}),
     };
-    return this.prisma.profile.update({ where: { userId }, data });
+    const upd = await this.prisma.profile.update({ where: { userId }, data });
+    if (dto.photoUrl) this.mod.scanAvatar(userId, dto.photoUrl);
+    return upd;
   }
 
   /** Another user's public profile (respects block + private profiles). */

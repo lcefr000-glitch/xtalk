@@ -1,11 +1,12 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateReportDto } from './dto/report.dto';
+import { ModerationService } from '../moderation/moderation.service';
 
 @Injectable()
 export class SafetyService implements OnModuleInit {
   private readonly log = new Logger('Safety');
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly mod: ModerationService) {}
 
   /** Additive, idempotent bootstrap (same pattern as the other new modules). */
   async onModuleInit() {
@@ -123,7 +124,7 @@ export class SafetyService implements OnModuleInit {
   }
 
   async report(reporterId: string, dto: CreateReportDto) {
-    return this.prisma.report.create({
+    const r = await this.prisma.report.create({
       data: {
         reporterId,
         targetType: dto.targetType,
@@ -132,5 +133,8 @@ export class SafetyService implements OnModuleInit {
         details: dto.details,
       },
     });
+    // The content is checked first. Nobody is punished only because they were reported.
+    this.mod.processReport(r.id);
+    return r;
   }
 }

@@ -14,6 +14,7 @@ import { HealthModule } from './modules/health/health.module';
 import { DiscoveryModule } from './modules/discovery/discovery.module';
 import { FollowsModule } from './modules/follows/follows.module';
 import { SafetyModule } from './modules/safety/safety.module';
+import { ModerationModule } from './modules/moderation/moderation.module';
 import { ConversationsModule } from './modules/conversations/conversations.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { TranslationModule } from './modules/translation/translation.module';
@@ -51,6 +52,7 @@ import { LiveModule } from './modules/live/live.module';
     HealthModule,
     DiscoveryModule,
     FollowsModule,
+    ModerationModule,
     SafetyModule,
     ConversationsModule,
     NotificationsModule,
