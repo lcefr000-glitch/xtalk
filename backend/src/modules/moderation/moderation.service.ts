@@ -177,6 +177,7 @@ export class ModerationService implements OnModuleInit {
       if (type === 'NAME' && sc.hits.length) throw new BadRequestException('This name is not allowed.');
       return;
     }
+    if ((type as string) === 'NAME') throw new BadRequestException('This name is not allowed.');
     const edu = looksEducational(text);
     const ai = await this.aiText(text, context, 5000);
     let v: Verdict;
