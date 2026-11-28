@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString, IsUUID, Length, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsIn, IsUUID, Length, MaxLength } from 'class-validator';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { AdminGuard } from '../admin/admin.guard';
@@ -13,6 +13,7 @@ class CreateStreamDto {
   @IsOptional() @IsString() @Length(2, 10) languageCode?: string;
   // Older app builds send the language under this name.
   @IsOptional() @IsString() @MaxLength(10) language?: string;
+  @IsOptional() @IsIn([true, false, 'true', 'false']) unlisted?: boolean | string;
 }
 
 class StageTargetDto {

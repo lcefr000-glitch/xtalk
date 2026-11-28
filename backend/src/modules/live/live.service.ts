@@ -37,6 +37,7 @@ export class LiveService implements OnModuleInit {
           ended_at TIMESTAMPTZ
         )`,
       );
+      await this.prisma.$executeRawUnsafe(`ALTER TABLE live_streams ADD COLUMN IF NOT EXISTS unlisted BOOLEAN NOT NULL DEFAULT false`);
       await this.prisma.$executeRawUnsafe(
         `CREATE INDEX IF NOT EXISTS live_streams_status_idx ON live_streams (status, started_at)`,
       );
@@ -65,7 +66,7 @@ export class LiveService implements OnModuleInit {
     if (!this.ready) throw new ServiceUnavailableException('Live streaming is not available right now');
   }
 
-  async create(hostId: string, dto: { title: string; description?: string; category?: string; languageCode?: string }) {
+  async create(hostId: string, dto: { title: string; description?: string; category?: string; languageCode?: string; unlisted?: boolean | string }) {
     this.ensureReady();
     const existing = await this.prisma.$queryRaw<{ id: string }[]>`
       SELECT id FROM live_streams WHERE host_id = ${hostId} AND status = 'LIVE'`;
@@ -75,8 +76,8 @@ export class LiveService implements OnModuleInit {
     }
     const id = crypto.randomUUID();
     await this.prisma.$executeRaw`
-      INSERT INTO live_streams (id, host_id, title, description, category, language_code)
-      VALUES (${id}, ${hostId}, ${dto.title}, ${dto.description ?? null}, ${dto.category ?? null}, ${dto.languageCode?.toLowerCase() ?? null})`;
+      INSERT INTO live_streams (id, host_id, title, description, category, language_code, unlisted)
+      VALUES (${id}, ${hostId}, ${dto.title}, ${dto.description ?? null}, ${dto.category ?? null}, ${dto.languageCode?.toLowerCase() ?? null}, ${dto.unlisted === true || dto.unlisted === 'true'})`;
     return this.hostView(id, hostId);
   }
 
@@ -123,6 +124,7 @@ export class LiveService implements OnModuleInit {
       JOIN "User" u ON u.id = s.host_id
       LEFT JOIN "Profile" p ON p."userId" = u.id
       WHERE s.status = 'LIVE'
+        AND (NOT s.unlisted OR s.host_id = ${viewerId ?? ''})
         AND NOT (s.host_id = ANY(${hide}::text[]))
         AND (${lang}::text IS NULL OR s.language_code = ${lang})
         AND (${cat}::text IS NULL OR s.category = ${cat})
