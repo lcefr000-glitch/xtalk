@@ -17,6 +17,7 @@ import { SafetyModule } from './modules/safety/safety.module';
 import { ConversationsModule } from './modules/conversations/conversations.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { TranslationModule } from './modules/translation/translation.module';
+import { AiModule } from './modules/ai/ai.module';
 import { CorrectionsModule } from './modules/corrections/corrections.module';
 import { PostsModule } from './modules/posts/posts.module';
 import { VoiceModule } from './modules/voice/voice.module';
@@ -53,6 +54,7 @@ import { LiveModule } from './modules/live/live.module';
     ConversationsModule,
     NotificationsModule,
     TranslationModule,
+    AiModule,
     CorrectionsModule,
     PostsModule,
     VoiceModule,

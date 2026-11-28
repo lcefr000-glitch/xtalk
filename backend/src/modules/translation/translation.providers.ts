@@ -1,4 +1,5 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { GeminiClient } from '../ai/gemini.client';
 
 export interface TranslationResult {
   translatedText: string;
@@ -19,11 +20,24 @@ export interface TranslationProvider {
 export class LibreTranslateProvider implements TranslationProvider {
   readonly name = 'libretranslate';
 
+  constructor(private readonly gemini: GeminiClient) {}
+
+  /** Gemini translation, used first when GEMINI_API_KEY is set; any other provider remains the fallback. */
+  private async viaGemini(text: string, source: string | undefined, target: string): Promise<TranslationResult> {
+    const system = 'You are a translation engine. Translate the user text' + (source ? ` from language code "${source}"` : '') +
+      ` into language code "${target}". Keep tone, emoji and line breaks. Output only the translation, nothing else.`;
+    const out = await this.gemini.generate(system, [{ role: 'user', text }]);
+    return { translatedText: out, detectedSource: source ?? detectLanguage(text), provider: 'ai' };
+  }
+
   isConfigured(): boolean {
     return Boolean(process.env.TRANSLATE_BASE_URL);
   }
 
   async translate(text: string, source: string | undefined, target: string): Promise<TranslationResult> {
+    if (this.gemini.isConfigured()) {
+      try { return await this.viaGemini(text, source, target); } catch { /* fall through to the other providers */ }
+    }
     const gkey = process.env.TRANSLATE_GOOGLE_KEY;
     if (gkey) return this.google(text, source, target, gkey);
     const base = process.env.TRANSLATE_BASE_URL;
