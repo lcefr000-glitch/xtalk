@@ -18,6 +18,7 @@ import { ConversationsModule } from './modules/conversations/conversations.modul
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { TranslationModule } from './modules/translation/translation.module';
 import { AiModule } from './modules/ai/ai.module';
+import { ShopModule } from './modules/shop/shop.module';
 import { CorrectionsModule } from './modules/corrections/corrections.module';
 import { PostsModule } from './modules/posts/posts.module';
 import { VoiceModule } from './modules/voice/voice.module';
@@ -55,6 +56,7 @@ import { LiveModule } from './modules/live/live.module';
     NotificationsModule,
     TranslationModule,
     AiModule,
+    ShopModule,
     CorrectionsModule,
     PostsModule,
     VoiceModule,

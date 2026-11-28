@@ -7,6 +7,9 @@ import {
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AddUserLanguageDto, UpdateUserLanguageDto } from './dto/user-language.dto';
 
+/** Major languages only, no dialect variants. */
+export const MAJOR_LANGUAGES = ['ar','en','es','fr','de','it','pt','ru','tr','zh','ja','ko','hi','ur','bn','fa','id','ms','th','vi','nl','pl','uk','sv','el','he','ro','cs','hu','sw','tl','da','fi','no','bg','sr','hr','sk','ta','te','pa','am','so','ha','yo','ku','ps','af','sq','hy','az','ka','kk','uz'];
+
 @Injectable()
 export class LanguagesService {
   constructor(private readonly prisma: PrismaService) {}
@@ -16,6 +19,7 @@ export class LanguagesService {
     return this.prisma.language.findMany({
       where: {
         isActive: true,
+        code: { in: MAJOR_LANGUAGES },
         ...(rtl !== undefined ? { isRtl: rtl } : {}),
         ...(search
           ? {
