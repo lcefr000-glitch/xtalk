@@ -171,7 +171,9 @@ export class ModerationService implements OnModuleInit {
       await this.record({ userId, type, excerpt: text, categories: [...cats], risk, source: 'AUTO', confidence: 0.9, reason: sc.link ?? 'scam wording', applyPenalty: true });
       throw new BadRequestException(`Message not sent: it contains ${sc.link ?? 'a scam attempt'}.`);
     }
-    if (!strong.length) {
+    const nrm = normalize(text);
+    const directed = sc.hits.length > 0 && (sc.hits.length >= 2 || /(^|\s)(you|u|ur|your|youre|انت|انتي|ياا?|يا)(\s|$)/.test(nrm));
+    if (!strong.length && !(directed && type !== 'NAME')) {
       if (type === 'NAME' && sc.hits.length) throw new BadRequestException('This name is not allowed.');
       return;
     }
@@ -179,7 +181,7 @@ export class ModerationService implements OnModuleInit {
     const ai = await this.aiText(text, context, 5000);
     let v: Verdict;
     if (ai) v = ai;
-    else v = { violation: !(edu && !strong.some((h) => h.category === 'threat')), categories: [...cats], risk, confidence: 0.75, reason: 'Matched blocked wording', context: edu ? 'educational' : 'unknown', source: 'rules' };
+    else v = { violation: strong.length > 0 && !(edu && !strong.some((h) => h.category === 'threat')), categories: [...cats], risk, confidence: 0.75, reason: 'Matched blocked wording', context: edu ? 'educational' : 'unknown', source: 'rules' };
     if (type === 'NAME') { if (v.violation) throw new BadRequestException('This name is not allowed.'); return; }
     if (!v.violation || v.confidence < 0.6) return;
     const r = maxRisk(v.risk, strong.some((h) => h.category === 'threat') ? 'HIGH' : 'LOW');
@@ -280,7 +282,7 @@ export class ModerationService implements OnModuleInit {
     let kind: PenaltyKind; let hours: number | null = null;
     if (risk === 'CRITICAL') { kind = 'TEMP_SUSPEND'; hours = s.critical >= 2 ? 24 * 14 : 24 * 7; }
     else if (risk === 'HIGH') { kind = 'TEMP_SUSPEND'; hours = s.high >= 3 ? 24 * 7 : s.high === 2 ? 72 : 24; }
-    else if (risk === 'MEDIUM') { if (s.score >= 8) { kind = 'TEMP_SUSPEND'; hours = 24; } else if (s.score >= 4) { kind = 'FEATURE_MUTE'; hours = 24; } else kind = 'WARNING'; }
+    else if (risk === 'MEDIUM') { if (s.score >= 10) { kind = 'TEMP_SUSPEND'; hours = 24; } else if (s.score >= 6) { kind = 'FEATURE_MUTE'; hours = 24; } else if (s.score >= 3) kind = 'FORMAL_WARNING'; else kind = 'WARNING'; }
     else { if (s.score >= 6) { kind = 'FEATURE_MUTE'; hours = 6; } else if (s.score >= 3) kind = 'FORMAL_WARNING'; else kind = 'WARNING'; }
     const pen = await this.createPenalty(userId, kind, hours, 'ai', violationId, this.cats(cats, 'en'));
     if (kind === 'TEMP_SUSPEND' && (s.critical >= 2 || s.high >= 3)) await this.prisma.$executeRaw`UPDATE mod_violations SET review_note = 'Repeated serious violations: a person should decide on a permanent ban.', status = 'PENDING_REVIEW' WHERE id = ${violationId}`;

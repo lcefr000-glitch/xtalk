@@ -35,7 +35,7 @@ const TERMS: Term[] = [
   T('bitch', 'profanity', 'MEDIUM', true, true), T('asshole', 'profanity', 'MEDIUM', true, true), T('cunt', 'profanity', 'MEDIUM', true, true), T('dickhead', 'profanity', 'MEDIUM', true, true),
   T('bastard', 'profanity', 'MEDIUM', true), T('whore', 'profanity', 'MEDIUM', true), T('slut', 'profanity', 'MEDIUM', true), T('pussy', 'sexual', 'MEDIUM', true), T('wanker', 'profanity', 'MEDIUM', true),
   // English mild insults (need context)
-  T('stupid', 'insult', 'LOW', false), T('idiot', 'insult', 'LOW', false), T('moron', 'insult', 'LOW', false), T('dumb', 'insult', 'LOW', false), T('loser', 'insult', 'LOW', false), T('ugly', 'insult', 'LOW', false), T('trash', 'insult', 'LOW', false), T('shutup', 'insult', 'LOW', false, true),
+  T('stupid', 'insult', 'LOW', false, true), T('idiot', 'insult', 'LOW', false, true), T('moron', 'insult', 'LOW', false), T('dumb', 'insult', 'LOW', false), T('loser', 'insult', 'LOW', false), T('ugly', 'insult', 'LOW', false), T('trash', 'insult', 'LOW', false), T('shutup', 'insult', 'LOW', false, true),
   // English hate
   T('nigger', 'hate', 'HIGH', true, true), T('nigga', 'hate', 'HIGH', true), T('faggot', 'hate', 'HIGH', true, true), T('kike', 'hate', 'HIGH', true), T('chink', 'hate', 'HIGH', true), T('retard', 'hate', 'MEDIUM', true), T('tranny', 'hate', 'HIGH', true), T('paki', 'hate', 'HIGH', true),
   // English sexual
@@ -45,6 +45,9 @@ const TERMS: Term[] = [
   T('شرموطه', 'profanity', 'MEDIUM', true, true), T('شرموط', 'profanity', 'MEDIUM', true, true), T('عرص', 'profanity', 'MEDIUM', true), T('معرص', 'profanity', 'MEDIUM', true), T('خول', 'profanity', 'MEDIUM', true), T('قحبه', 'profanity', 'MEDIUM', true, true), T('لبوه', 'profanity', 'MEDIUM', true),
   T('ابن الكلب', 'profanity', 'MEDIUM', true, true), T('ابن الوسخه', 'profanity', 'MEDIUM', true, true), T('ابن المتناكه', 'profanity', 'MEDIUM', true, true), T('ابن الشرموطه', 'profanity', 'MEDIUM', true, true), T('ابن القحبه', 'profanity', 'MEDIUM', true, true), T('بنت الكلب', 'profanity', 'MEDIUM', true, true),
   T('يلعن', 'profanity', 'MEDIUM', true), T('ينعل', 'profanity', 'MEDIUM', true), T('زبي', 'sexual', 'MEDIUM', true), T('طيزك', 'sexual', 'MEDIUM', true), T('نيك', 'sexual', 'MEDIUM', false), T('انيكك', 'sexual', 'HIGH', true, true), T('سكس', 'sexual', 'MEDIUM', false), T('بزاز', 'sexual', 'MEDIUM', true),
+  // Franco-Arabic (Latin letters) profanity
+  T('ibn el kalb', 'profanity', 'MEDIUM', true, true), T('ibn elkalb', 'profanity', 'MEDIUM', true, true), T('ibn el sharmota', 'profanity', 'MEDIUM', true, true), T('sharmota', 'profanity', 'MEDIUM', true, true), T('sharmouta', 'profanity', 'MEDIUM', true, true), T('kosomak', 'profanity', 'MEDIUM', true, true), T('kos omak', 'profanity', 'MEDIUM', true, true), T('ya kalb', 'insult', 'LOW', false, true), T('khawal', 'profanity', 'MEDIUM', true, true), T('metnak', 'profanity', 'MEDIUM', true, true), T('ayri', 'profanity', 'MEDIUM', true, true), T('ya ibn el', 'insult', 'LOW', false, true),
+  T('احا', 'profanity', 'MEDIUM', true), T('يا واطي', 'insult', 'LOW', false, true), T('زفت', 'insult', 'LOW', false),
   // Arabic mild insults (need context)
   T('حمار', 'insult', 'LOW', false), T('غبي', 'insult', 'LOW', false), T('حيوان', 'insult', 'LOW', false), T('كلب', 'insult', 'LOW', false), T('تافه', 'insult', 'LOW', false), T('وسخ', 'insult', 'LOW', false), T('زباله', 'insult', 'LOW', false), T('بهيم', 'insult', 'LOW', false), T('ياعبيط', 'insult', 'LOW', false), T('اهبل', 'insult', 'LOW', false), T('قذر', 'insult', 'LOW', false), T('حقير', 'insult', 'LOW', false),
   // Arabic hate
