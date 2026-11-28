@@ -7,6 +7,7 @@ export const SHOP_ITEMS: ShopItem[] = [
 {"id":"bg_library","kind":"BACKGROUND","name":"Warm Library","nameAr":"المكتبة الدافئة","colors":["#6B4020","#FFD98A"],"style":"scene_library","price7":360,"price30":1200,"isNew":true},
 {"id":"bg_moon_town","kind":"BACKGROUND","name":"Moon Town","nameAr":"مدينة القمر","colors":["#1D2A66","#FFD36B"],"style":"scene_moon_town","price7":360,"price30":1200,"isNew":true},
 {"id":"bg_cabin","kind":"BACKGROUND","name":"Snowy Cabin","nameAr":"كوخ الثلج","colors":["#4F3A28","#FFA43A"],"style":"scene_cabin","price7":360,"price30":1200,"isNew":true},
+{"id":"bg_mosque","kind":"BACKGROUND","name":"Mosque Courtyard","nameAr":"ساحة المسجد","colors":["#3A3022","#4FA8FF"],"style":"scene_mosque","price7":360,"price30":1200,"isNew":true},
 {"id":"frame_wreath","kind":"FRAME","name":"Flower Wreath","nameAr":"إكليل الزهور","colors":["#FF8FB1","#FFD36B","#FFFFFF"],"style":"wreath","price7":600,"price30":2000,"isNew":true},
 {"id":"frame_wings","kind":"FRAME","name":"Angel Wings","nameAr":"أجنحة الملاك","colors":["#FFFFFF","#9ED0FF"],"style":"wings","price7":720,"price30":2400,"isNew":true},
 {"id":"frame_crescent","kind":"FRAME","name":"Crescent Moon","nameAr":"الهلال","colors":["#FFE08A","#FFB02E"],"style":"moon","price7":660,"price30":2200,"isNew":true},
