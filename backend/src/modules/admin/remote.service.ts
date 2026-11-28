@@ -1,0 +1,76 @@
+import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { randomBytes } from 'crypto';
+import { PrismaService } from '../../common/prisma/prisma.service';
+import { SHOP_ITEMS, ShopItem } from '../shop/shop.catalog';
+
+const KINDS = ['FRAME', 'BACKGROUND'];
+const MIMES = ['image/png', 'image/jpeg', 'image/webp'];
+
+/** Remote content: shop items made from the admin panel (image upload) and key/value config the app reads at launch. */
+@Injectable()
+export class RemoteService implements OnModuleInit {
+  private readonly log = new Logger('Remote');
+  private custom = new Set<string>();
+  constructor(private readonly prisma: PrismaService) {}
+
+  async onModuleInit() {
+    try {
+      await this.prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS custom_shop_items (id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, name_ar TEXT NOT NULL DEFAULT '', price7 INT NOT NULL, price30 INT NOT NULL, mime TEXT NOT NULL, img BYTEA NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+      await this.prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS app_remote_config (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+      await this.reload();
+    } catch (e) { this.log.error('remote init failed: ' + (e as Error).message); }
+  }
+
+  /** Mirrors the stored custom items into the live shop list so buy, equip and room themes accept them. */
+  async reload() {
+    const rows = await this.prisma.$queryRawUnsafe<{ id: string; kind: string; name: string; name_ar: string; price7: number; price30: number }[]>(`SELECT id, kind, name, name_ar, price7, price30 FROM custom_shop_items ORDER BY created_at`);
+    for (const id of this.custom) { const i = SHOP_ITEMS.findIndex((x) => x.id === id); if (i >= 0) SHOP_ITEMS.splice(i, 1); }
+    this.custom = new Set();
+    for (const r of rows) {
+      const it: ShopItem = { id: r.id, kind: r.kind as ShopItem['kind'], name: r.name, nameAr: r.name_ar, colors: ['#FFFFFF'], style: r.kind === 'BACKGROUND' ? 'scene_' + r.id : 'img_frame', price7: r.price7, price30: r.price30, isNew: true, imageUrl: `/api/v1/app/shop-img/${r.id}` };
+      SHOP_ITEMS.unshift(it); this.custom.add(r.id);
+    }
+  }
+
+  async addItem(d: { kind: string; name: string; nameAr: string; price7: number; price30: number; mime: string; img: Buffer }) {
+    if (!KINDS.includes(d.kind)) throw new BadRequestException('Kind must be FRAME or BACKGROUND');
+    if (!MIMES.includes(d.mime)) throw new BadRequestException('Image must be PNG, JPEG or WebP');
+    if (!d.img?.length || d.img.length > 2_000_000) throw new BadRequestException('Image must be under 2 MB');
+    const name = d.name.trim().slice(0, 40); if (!name) throw new BadRequestException('Name is required');
+    if (!(d.price7 > 0) || !(d.price30 > 0)) throw new BadRequestException('Prices must be above 0');
+    const id = 'cx_' + randomBytes(5).toString('hex');
+    await this.prisma.$executeRaw`INSERT INTO custom_shop_items (id, kind, name, name_ar, price7, price30, mime, img) VALUES (${id}, ${d.kind}, ${name}, ${d.nameAr.trim().slice(0, 40)}, ${Math.floor(d.price7)}, ${Math.floor(d.price30)}, ${d.mime}, ${d.img})`;
+    await this.reload();
+    return { id };
+  }
+
+  async removeItem(id: string) {
+    await this.prisma.$executeRaw`DELETE FROM custom_shop_items WHERE id = ${id}`;
+    await this.reload();
+    return { ok: true };
+  }
+
+  async listItems() { return SHOP_ITEMS.filter((i) => this.custom.has(i.id)).map((i) => ({ id: i.id, kind: i.kind, name: i.name, nameAr: i.nameAr, price7: i.price7, price30: i.price30, imageUrl: i.imageUrl })); }
+
+  async image(id: string) {
+    const r = await this.prisma.$queryRaw<{ mime: string; img: Buffer }[]>`SELECT mime, img FROM custom_shop_items WHERE id = ${id}`;
+    return r[0] ?? null;
+  }
+
+  async config() {
+    const rows = await this.prisma.$queryRawUnsafe<{ key: string; value: string }[]>(`SELECT key, value FROM app_remote_config`);
+    return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  }
+
+  async saveConfig(values: Record<string, string>) {
+    for (const [k, v] of Object.entries(values ?? {})) {
+      if (!/^[a-z0-9_]{1,40}$/.test(k)) throw new BadRequestException('Bad key: ' + k);
+      const val = String(v ?? '').slice(0, 500);
+      if (k === 'apk_url' && val && !val.startsWith('https://')) throw new BadRequestException('APK link must start with https://');
+      if (k === 'latest_version_code' && val && !/^\d{1,6}$/.test(val)) throw new BadRequestException('Version code must be a number');
+      if (val === '') await this.prisma.$executeRaw`DELETE FROM app_remote_config WHERE key = ${k}`;
+      else await this.prisma.$executeRaw`INSERT INTO app_remote_config (key, value) VALUES (${k}, ${val}) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`;
+    }
+    return this.config();
+  }
+}

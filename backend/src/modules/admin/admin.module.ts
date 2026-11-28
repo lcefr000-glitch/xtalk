@@ -8,6 +8,8 @@ import { AdminXController } from './admin-x.controller';
 import { AdminStoreController } from './admin-store.controller';
 import { StoreModule } from '../store/store.module';
 import { AdminGuard } from './admin.guard';
+import { AppRemoteController, AdminRemoteController } from './remote.controller';
+import { RemoteService } from './remote.service';
 import { AdminService } from './admin.service';
 
 @Module({
@@ -20,7 +22,7 @@ import { AdminService } from './admin.service';
       }),
     }),
   ],
-  controllers: [AdminController, AdminXController, AdminControlController, AdminStoreController],
-  providers: [AdminService, AdminGuard],
+  controllers: [AdminController, AdminXController, AdminControlController, AdminStoreController, AppRemoteController, AdminRemoteController],
+  providers: [AdminService, AdminGuard, RemoteService],
 })
 export class AdminModule {}

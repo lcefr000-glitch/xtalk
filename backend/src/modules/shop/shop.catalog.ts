@@ -1,6 +1,6 @@
 export type ShopKind = 'FRAME' | 'BUBBLE' | 'MIC' | 'BACKGROUND' | 'TAG' | 'PACK';
 /** Colors and style drive how the app draws each item (all art is drawn in-app). Ownership is timed: 7 or 30 days. Packs grant their included items for the same period. */
-export interface ShopItem { id: string; kind: ShopKind; name: string; nameAr: string; colors: string[]; style: string; price7: number; price30: number; isNew: boolean; includes?: string[] }
+export interface ShopItem { id: string; kind: ShopKind; name: string; nameAr: string; colors: string[]; style: string; price7: number; price30: number; isNew: boolean; includes?: string[]; imageUrl?: string }
 export const SHOP_DAYS = [7, 30] as const;
 export const SHOP_ITEMS: ShopItem[] = [
 {"id":"bg_desert_night","kind":"BACKGROUND","name":"Desert Night","nameAr":"ليل الصحراء","colors":["#1C2C66","#B98A5A"],"style":"scene_desert","price7":360,"price30":1200,"isNew":true},
