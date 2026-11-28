@@ -1,3 +1,4 @@
+import { PushService } from '../notifications/push.service';
 import {
   BadRequestException,
   ForbiddenException,
@@ -15,6 +16,7 @@ export class ConversationsService {
     private readonly prisma: PrismaService,
     private readonly safety: SafetyService,
     private readonly progress: ProgressService,
+    private readonly push: PushService,
   ) {}
 
   /** Get-or-create the 1:1 conversation between two users. */
@@ -173,6 +175,7 @@ export class ConversationsService {
       });
       return created;
     });
+    for (const o of others) void this.push.send(o.userId, 'X Talk', 'New message', { type: 'message', conversationId }).catch(() => undefined);
     // Learning stats: count sent messages (best effort, never blocks sending).
     this.progress.record(meId, { messagesSent: 1 }).catch(() => undefined);
     return message;

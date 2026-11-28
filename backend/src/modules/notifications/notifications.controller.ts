@@ -1,13 +1,20 @@
-import { Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
+import { PushService } from './push.service';
 import { NotificationsService } from './notifications.service';
 
 @ApiTags('notifications')
 @ApiBearerAuth()
 @Controller('notifications')
 export class NotificationsController {
-  constructor(private readonly notifications: NotificationsService) {}
+  constructor(private readonly notifications: NotificationsService, private readonly push: PushService) {}
+
+  @Post('push-token')
+  pushToken(@CurrentUser() user: AuthUser, @Body() b: { token?: string }) { return this.push.register(user.id, b?.token ?? ''); }
+
+  @Post('push-token/remove')
+  pushRemove(@Body() b: { token?: string }) { return this.push.unregister(b?.token ?? ''); }
 
   @Get()
   list(@CurrentUser() user: AuthUser, @Query('page') page?: string, @Query('limit') limit?: string) {

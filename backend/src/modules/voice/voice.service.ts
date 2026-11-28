@@ -1,3 +1,4 @@
+import { PushService } from '../notifications/push.service';
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { SafetyService } from '../safety/safety.service';
@@ -94,6 +95,7 @@ export class VoiceService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly safety: SafetyService,
     private readonly livekit: LiveKitService,
+    private readonly push: PushService,
   ) {}
 
   private metaReady = false;
@@ -581,6 +583,7 @@ export class VoiceService implements OnModuleInit {
     await this.prisma.notification.create({
       data: { recipientId: dto.calleeId, actorId: callerId, type: 'INCOMING_CALL', payload: { callId: call.id, type: dto.type } },
     });
+    void this.push.send(dto.calleeId, 'X Talk', dto.type === 'VIDEO' ? 'Incoming video call' : 'Incoming call', { type: 'call', callId: call.id, callType: String(dto.type) }).catch(() => undefined);
     return call;
   }
 

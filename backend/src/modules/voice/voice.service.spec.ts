@@ -14,7 +14,7 @@ describe('VoiceService.getToken / LiveKit', () => {
   afterEach(() => { process.env = { ...env }; });
   const mk = (r: any) => {
     const prisma: any = { voiceRoom: { findUnique: jest.fn().mockResolvedValue(r) } };
-    return new VoiceService(prisma, {} as any, new LiveKitService());
+    return new VoiceService(prisma, {} as any, new LiveKitService(), { send: async () => ({}) } as any);
   };
   const cfg = () => {
     process.env.LIVEKIT_URL = 'wss://x.livekit.cloud';
@@ -71,7 +71,7 @@ describe('stage requests + moderators', () => {
       voiceRoomParticipant: { updateMany: jest.fn() },
     };
     const lk: any = { setCanPublish: jest.fn(), mute: jest.fn(), kick: jest.fn() };
-    return { svc: new VoiceService(prisma, {} as any, lk), prisma, lk };
+    return { svc: new VoiceService(prisma, {} as any, lk, { send: async () => ({}) } as any), prisma, lk };
   };
 
   it('listener request shows in room, host accepts, queue clears', async () => {
